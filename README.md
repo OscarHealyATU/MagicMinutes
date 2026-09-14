@@ -411,3 +411,13 @@ npm run tauri build    # build an installer
 `npm run dev` serves the app at http://localhost:5179 for an ordinary browser, filled with
 a built-in sample campaign — handy for trying it out without installing anything. More detail, including tests and the
 Android build, is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+---
+
+## License
+
+MagicMinutes is released under the [MIT License](LICENSE): you're free to use, copy, modify
+and share it, including in your own projects, as long as the copyright notice comes along.
+
+The bundled fonts, Jim Nightshade and Quintessential, are under the SIL Open Font License;
+their license files are in [`public/fonts`](public/fonts).
