@@ -83,7 +83,7 @@ it shows how places connect, not exact distances.
 
 | On the map | What it means |
 |---|---|
-| **Small white dot** with a name | A place (a "station"). |
+| **Small dot** with a name | A place (a "station"). |
 | **Larger dot with a thick ring** | An *interchange*: a place on two or more lines. |
 | **Coloured line** between places | A connection you wrote in a place's location blocks. The colour is the block type: **On the route**, **Near**, **Between**, **Direction** or **Note**. The legend in the bottom-left lists the ones your map uses. |
 | **Tinted rounded box** with a name in its corner | A *zone*: a place that other places sit inside — a region, a city, a castle. Made with **Inside** or **Contains** blocks. Boxes nest, and deeper boxes are shaded darker. |
