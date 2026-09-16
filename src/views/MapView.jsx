@@ -5,16 +5,18 @@ import { DISPOSITION_COLORS, labelOf } from '../lib/characters.mjs';
 import {
   buildContainment,
   buildEdges,
-  clampPointToRect,
   clampRectInRect,
+  clampPointToLobes,
   descendantsOf,
-  edgeAttachPoint,
+  labelInset,
+  layoutZones,
+  LOBE_DEFAULTS,
+  lobesAttachPoint,
+  lobesPath,
   packLayout,
   pushRectClear,
-  resizeLimits,
   stationFootprint,
-  TEXT_METRICS,
-  zoneRects
+  TEXT_METRICS
 } from '../lib/mapZones.mjs';
 import { useZoomShortcuts } from '../lib/useZoomShortcuts.js';
 
@@ -26,11 +28,6 @@ const ZONE_GEOMETRY = { pad: 36, labelHeadroom: 28, minW: 120, minH: 80 };
 // apart — by packLayout when auto-arranging, and by the drag/resize handlers.
 const ZONE_GAP = 32;
 const PACK_OPTS = { ...ZONE_GEOMETRY, gridX: 120, gridY: 90, perRow: 3, zoneGap: ZONE_GAP };
-const ZONE_CORNER_RADIUS = 18;
-// Must be ≥ ZONE_GEOMETRY.pad: zoneRects pads the contents bbox by `pad`, so a
-// stop clamped any closer to the border would make the grow-only rect chase
-// it outward while dragging (and that inflated size could then get saved).
-const STOP_MARGIN = ZONE_GEOMETRY.pad;
 const RESIZE_HANDLE = 12;
 
 const connInfo = (id) =>
@@ -218,6 +215,11 @@ function ageOf(iso) {
   return `${Math.floor(d / 30)}mo`;
 }
 
+// Whether two rects overlap or come within `gap` of each other.
+function rectsNear(a, b, gap) {
+  return a.x < b.x + b.w + gap && a.x + a.w + gap > b.x && a.y < b.y + b.h + gap && a.y + a.h + gap > b.y;
+}
+
 function rectCenter(r) {
   return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
 }
@@ -281,6 +283,27 @@ function headerHeightFor(id, noteMatch, npcsByPlace, showNotes, showNpcs) {
   const lineCount = notes.length + npcs.length + (hidden > 0 ? 1 : 0);
   const hasBadges = notes.length > 0 || npcs.length > 0;
   return 30 + (hasBadges ? 20 : 0) + LIST_LINE_HEIGHT * lineCount + 8;
+}
+
+// How much straight top edge a zone's header needs, so its octagon can be
+// sized to fit it. The header starts at the top-left cut, and the diagonal
+// moves out 1px per pixel down, so each row gets back roughly twice its depth:
+// the name (~10px down) little, the badges (~34px) more, the list (~49px) most.
+function headerWidthFor(id, place, noteMatch, npcsByPlace, showNotes, showNpcs) {
+  const { notes, npcs, hidden } = noteNpcListFor(id, noteMatch, npcsByPlace, showNotes, showNpcs);
+  const nameW = (place?.name || '').length * 11 + 8;
+  const badgesW = ((notes.length > 0 ? 1 : 0) + (npcs.length > 0 ? 1 : 0)) * 46;
+  const listW = notes.length + npcs.length > 0
+    ? stationFootprint(
+        {
+          noteLines: notes.map((n) => truncateLabel(n.title || 'Untitled')),
+          npcLines: npcs.map((npc) => truncateLabel(labelOf(npc))),
+          hasMore: hidden > 0
+        },
+        TEXT_METRICS
+      ).right
+    : 0;
+  return Math.max(0, nameW - 10, badgesW - 34, listW - 49);
 }
 
 // Renders that capped list as a column of SVG text under a station/zone's
@@ -350,6 +373,14 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
   const [status, setStatus] = useState('');
   const drag = useRef(null);
   const svgRef = useRef(null);
+  // What's in the database for each place's mapX/mapY, so moves the layout
+  // makes by itself (an inner zone re-centred in its lobe, a place nudged
+  // back into its band) can be saved after a drag without re-saving everything.
+  const savedPosRef = useRef(new Map());
+  const needsSaveRef = useRef(false);
+  // Bumped when a drag ends, so the save effect runs even if the drop itself
+  // changed nothing that re-renders (a resize's size was already set live).
+  const [saveTick, setSaveTick] = useState(0);
 
   const edges = useMemo(() => buildEdges(places), [places]);
 
@@ -361,7 +392,10 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
   // `places` merged with the locally-known zone sizes, so zoneRects sees a
   // resize in progress immediately without waiting on the server round-trip.
   const placesWithSizes = useMemo(
-    () => places.map((p) => (sizes[p._id] ? { ...p, mapW: sizes[p._id].w, mapH: sizes[p._id].h } : p)),
+    () =>
+      places.map((p) =>
+        sizes[p._id] ? { ...p, mapW: sizes[p._id].w, mapH: sizes[p._id].h, mapLobes: sizes[p._id].lobes } : p
+      ),
     [places, sizes]
   );
 
@@ -386,15 +420,51 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
     return m;
   }, [places, noteMatch, npcsByPlace, showNotes, showNpcs]);
 
-  const zones = useMemo(
+  const headerWidthById = useMemo(() => {
+    const m = new Map();
+    for (const p of places) m.set(p._id, headerWidthFor(p._id, p, noteMatch, npcsByPlace, showNotes, showNpcs));
+    return m;
+  }, [places, noteMatch, npcsByPlace, showNotes, showNpcs]);
+
+  // Zones plus the positions everything is actually drawn at: lobed zones
+  // move their inner zones (and those zones' contents) to the lobe centres,
+  // so render and drag from `layoutPos`, not the raw `pos` state.
+  const layout = useMemo(
     () =>
-      zoneRects(placesWithSizes, pos, containment, {
+      layoutZones(placesWithSizes, pos, containment, {
         ...ZONE_GEOMETRY,
         footprintOf: (id) => footprintById.get(id),
-        headerOf: (id) => headerById.get(id)
+        headerOf: (id) => headerById.get(id),
+        headerWidthOf: (id) => headerWidthById.get(id)
       }),
-    [placesWithSizes, pos, containment, footprintById, headerById]
+    [placesWithSizes, pos, containment, footprintById, headerById, headerWidthById]
   );
+  const zones = layout.zones;
+  const layoutPos = layout.positions;
+
+  // After a drag, save any position the layout moved on its own. Rounded, so
+  // the sub-pixel re-centring that follows a save doesn't trigger another one.
+  useEffect(() => {
+    if (!needsSaveRef.current || drag.current) return;
+    needsSaveRef.current = false;
+    const writes = [];
+    for (const p of places) {
+      const lp = layoutPos[p._id];
+      if (!lp || !Number.isFinite(lp.x) || !Number.isFinite(lp.y)) continue;
+      const x = Math.round(lp.x);
+      const y = Math.round(lp.y);
+      const saved = savedPosRef.current.get(p._id);
+      if (saved && saved.x === x && saved.y === y) continue;
+      savedPosRef.current.set(p._id, { x, y });
+      // A zone's top-left and size only describe the same rect together.
+      const size = sizes[p._id];
+      const patch = size
+        ? { mapX: x, mapY: y, mapW: Math.round(size.w), mapH: Math.round(size.h), mapLobes: size.lobes ?? null }
+        : { mapX: x, mapY: y };
+      writes.push(api.update('places', p._id, patch));
+    }
+    if (writes.length) Promise.all(writes).catch((e) => setStatus(e.message));
+  }, [layoutPos, places, sizes, saveTick]);
 
   const zoneById = useMemo(() => new Map(zones.map((z) => [z.id, z])), [zones]);
 
@@ -456,17 +526,23 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
         const packed = packLayout(docs, docContainment, {
           ...PACK_OPTS,
           footprintOf: (id) => footprintFor(id, docById.get(id), docNoteMatch, docNpcsByPlace, true, true),
-          headerOf: (id) => headerHeightFor(id, docNoteMatch, docNpcsByPlace, true, true)
+          headerOf: (id) => headerHeightFor(id, docNoteMatch, docNpcsByPlace, true, true),
+          headerWidthOf: (id) => headerWidthFor(id, docById.get(id), docNoteMatch, docNpcsByPlace, true, true)
         }).positions;
         docs.forEach((p) => {
           if ((p.mapX == null || p.mapY == null) && docContainment.parentOf[p._id]) {
             layout[p._id] = packed[p._id] || layout[p._id];
           }
         });
+        savedPosRef.current = new Map(
+          docs.filter((p) => p.mapX != null && p.mapY != null).map((p) => [p._id, { x: p.mapX, y: p.mapY }])
+        );
         setPos(layout);
         setSizes(
           Object.fromEntries(
-            docs.filter((p) => p.mapW != null && p.mapH != null).map((p) => [p._id, { w: p.mapW, h: p.mapH }])
+            docs
+              .filter((p) => p.mapW != null && p.mapH != null)
+              .map((p) => [p._id, { w: p.mapW, h: p.mapH, lobes: p.mapLobes }])
           )
         );
       }
@@ -475,30 +551,27 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
 
   useZoomShortcuts(svgRef, setView, { min: 0.3, max: 3, initial: { tx: 40, ty: 20 } });
 
-  function savePosition(id, x, y) {
-    api.update('places', id, { mapX: x, mapY: y }).catch((e) => setStatus(e.message));
-  }
-
-  // Clamp a stop's candidate position inside its zone's rect: inset by
-  // `header` at the top (so it can't sit under the zone's own label/list),
-  // and inset on the right/bottom by the stop's own footprint on top of the
-  // usual margin (so its name/note list can't hang outside the zone either).
-  // When the zone is too small to hold the footprint, clampPointToRect's own
-  // degenerate-rect fallback (collapse to centre) takes over.
-  function clampStopToZone(point, zoneRect, header = ZONE_GEOMETRY.labelHeadroom, footprint = { right: 0, down: 0 }) {
-    const inner = { x: zoneRect.x, y: zoneRect.y + header, w: zoneRect.w, h: zoneRect.h - header };
-    return clampPointToRect(point, inner, STOP_MARGIN, STOP_MARGIN + footprint.right, STOP_MARGIN + footprint.down);
+  // Keep a dragged place inside its zone's octagon (or, in joined octagons,
+  // the band around the inner zones), clear of the zone's header.
+  function clampStop(point, d) {
+    if (!d.lobes) return point;
+    return clampPointToLobes(point, d.footprint, d.lobes, d.obstacles, d.margin);
   }
 
   async function rearrange() {
     const packOpts = {
       ...PACK_OPTS,
       footprintOf: (id) => footprintById.get(id),
-      headerOf: (id) => headerById.get(id)
+      headerOf: (id) => headerById.get(id),
+      headerWidthOf: (id) => headerWidthById.get(id)
     };
     const { positions, sizes: newSizes } = packLayout(places, containment, packOpts);
     setPos(positions);
     setSizes(newSizes);
+    for (const p of places) {
+      const pt = positions[p._id];
+      if (pt) savedPosRef.current.set(p._id, { x: Math.round(pt.x), y: Math.round(pt.y) });
+    }
     setStatus('Arranging…');
     try {
       await Promise.all(
@@ -508,6 +581,7 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
           const patch = { mapX: Math.round(pt.x), mapY: Math.round(pt.y) };
           if (newSizes[p._id]) {
             patch.mapW = Math.round(newSizes[p._id].w);
+            patch.mapLobes = newSizes[p._id].lobes ?? null;
             patch.mapH = Math.round(newSizes[p._id].h);
           }
           return api.update('places', p._id, patch);
@@ -532,22 +606,41 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
     drag.current = { mode: 'pan', startX: e.clientX, startY: e.clientY, tx0: view.tx, ty0: view.ty };
   }
 
+  // Pin the drawn positions into state before any drag, so the drag's edits
+  // and the layout's own moves are in the same coordinates.
+  function commitLayoutPositions() {
+    setPos(layoutPos);
+  }
+
+  // Saved with a zone's size so the size is only reused for the same shape.
+  function lobeCount(zone) {
+    return zone.lobed ? zone.lobes.length : null;
+  }
+
   function onNodeMouseDown(e, id) {
     e.stopPropagation();
+    commitLayoutPositions();
     const w = screenToWorld(e);
     // Snapshot the parent zone's rect once, up front — recomputing it live
     // during the drag would let the zone's own grow-to-fit-contents rule
     // chase the stop being dragged, so the "wall" would never actually stop it.
     const parentId = containment.parentOf[id];
     const parentZone = parentId ? zoneById.get(parentId) : null;
+    // Hold a plain zone's octagon where it is for the drag: otherwise it's
+    // re-sized from its contents as the place moves (and re-centred, inside
+    // joined octagons), sliding the place away from the cursor.
+    const holdZone = !!(parentZone && !parentZone.lobed);
+    if (holdZone) commitZoneRect(parentZone);
     drag.current = {
       mode: 'node',
       id,
-      offX: pos[id].x - w.x,
-      offY: pos[id].y - w.y,
-      zoneRect: parentZone ? parentZone.rect : null,
-      header: parentZone ? headerById.get(parentZone.id) : undefined,
+      offX: layoutPos[id].x - w.x,
+      offY: layoutPos[id].y - w.y,
+      lobes: parentZone ? parentZone.lobes : null,
+      obstacles: parentZone ? parentZone.stationObstacles : null,
+      margin: parentZone ? parentZone.stationMargin : 0,
       footprint: footprintById.get(id) || { right: 0, down: 0 },
+      heldZoneId: holdZone ? parentZone.id : null,
       moved: false
     };
   }
@@ -561,7 +654,7 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
   // (which works purely in rect-top-left terms) has no gap to jump across.
   function commitZoneRect(zone) {
     setPos((p) => ({ ...p, [zone.id]: { x: zone.rect.x, y: zone.rect.y } }));
-    setSizes((s) => ({ ...s, [zone.id]: { w: zone.rect.w, h: zone.rect.h } }));
+    setSizes((s) => ({ ...s, [zone.id]: { w: zone.rect.w, h: zone.rect.h, lobes: lobeCount(zone) } }));
   }
 
   // Rects of the zones that share this zone's parent (or are root zones
@@ -573,17 +666,32 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
       .map((z) => z.rect);
   }
 
-  function onZoneMouseDown(e, zone) {
+  // An inner zone of a lobed zone is pinned to its lobe, so grabbing it
+  // moves the lobed zone instead (all the way up, if that one is pinned too).
+  function dragTargetFor(zone) {
+    let z = zone;
+    for (;;) {
+      const parentId = containment.parentOf[z.id];
+      const parent = parentId ? zoneById.get(parentId) : null;
+      if (!parent || !parent.lobed) return z;
+      z = parent;
+    }
+  }
+
+  function onZoneMouseDown(e, clicked) {
     e.stopPropagation();
+    const zone = dragTargetFor(clicked);
+    commitLayoutPositions();
     commitZoneRect(zone);
     const w = screenToWorld(e);
     const parentId = containment.parentOf[zone.id];
     const parentZone = parentId ? zoneById.get(parentId) : null;
     const descendantIds = [...descendantsOf(zone.id, containment.childrenOf)];
-    const startPositions = new Map(descendantIds.map((id) => [id, pos[id]]).filter(([, p]) => p));
+    const startPositions = new Map(descendantIds.map((id) => [id, layoutPos[id]]).filter(([, p]) => p));
     drag.current = {
       mode: 'zone',
       id: zone.id,
+      clickedId: clicked.id,
       siblingRects: siblingZoneRects(zone.id),
       startRectX: zone.rect.x,
       startRectY: zone.rect.y,
@@ -599,37 +707,75 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
     };
   }
 
+  // Zones scale evenly about their centre and never stretch: the handle sets
+  // one scale, and a zone of joined octagons keeps its columns:rows shape.
   function onZoneResizeMouseDown(e, zone) {
     e.stopPropagation();
+    commitLayoutPositions();
     commitZoneRect(zone);
     const w = screenToWorld(e);
     const parentId = containment.parentOf[zone.id];
     const parentZone = parentId ? zoneById.get(parentId) : null;
-    const cb = zone.contentBounds;
-    const minW = cb ? Math.max(ZONE_GEOMETRY.minW, cb.x + cb.w - zone.rect.x) : ZONE_GEOMETRY.minW;
-    const minH = cb ? Math.max(ZONE_GEOMETRY.minH, cb.y + cb.h - zone.rect.y) : ZONE_GEOMETRY.minH;
-    // Leave the parent's padding intact, same as when dragging a child zone,
-    // and stop short of any sibling zone to the right or below.
-    const sib = resizeLimits(zone.rect, siblingZoneRects(zone.id), ZONE_GAP);
-    const maxW = Math.min(
-      sib.maxW,
-      parentZone ? parentZone.rect.x + parentZone.rect.w - ZONE_GEOMETRY.pad - zone.rect.x : Infinity
-    );
-    const maxH = Math.min(
-      sib.maxH,
-      parentZone ? parentZone.rect.y + parentZone.rect.h - ZONE_GEOMETRY.pad - zone.rect.y : Infinity
+    const { cols, rows } = zone.grid;
+    const r = zone.rect;
+    const cx = r.x + r.w / 2;
+    const cy = r.y + r.h / 2;
+    // An inner zone of joined octagons stays centred in its lobe, and the
+    // lobes grow around it, so nothing limits it here.
+    const inLobes = !!(parentZone && parentZone.lobed);
+    // Free room on each side before the parent's padding or a sibling zone.
+    const room = { left: Infinity, right: Infinity, up: Infinity, down: Infinity };
+    if (!inLobes) {
+      if (parentZone) {
+        const p = parentZone.rect;
+        const top = p.y + ZONE_GEOMETRY.pad + (headerById.get(parentZone.id) ?? ZONE_GEOMETRY.labelHeadroom);
+        room.left = r.x - (p.x + ZONE_GEOMETRY.pad);
+        room.right = p.x + p.w - ZONE_GEOMETRY.pad - (r.x + r.w);
+        room.up = r.y - top;
+        room.down = p.y + p.h - ZONE_GEOMETRY.pad - (r.y + r.h);
+      }
+      for (const o of siblingZoneRects(zone.id)) {
+        if (o.y - ZONE_GAP < r.y + r.h && o.y + o.h + ZONE_GAP > r.y) {
+          if (o.x >= cx) room.right = Math.min(room.right, o.x - ZONE_GAP - (r.x + r.w));
+          else room.left = Math.min(room.left, r.x - (o.x + o.w + ZONE_GAP));
+        }
+        if (o.x - ZONE_GAP < r.x + r.w && o.x + o.w + ZONE_GAP > r.x) {
+          if (o.y >= cy) room.down = Math.min(room.down, o.y - ZONE_GAP - (r.y + r.h));
+          else room.up = Math.min(room.up, r.y - (o.y + o.h + ZONE_GAP));
+        }
+      }
+      for (const k of Object.keys(room)) room[k] = Math.max(0, room[k]);
+    }
+    const startScale = r.w / cols;
+    // Its contents set the floor, but never above its current size, so
+    // grabbing the handle can't make it jump bigger.
+    const minScale = Math.min(startScale, Math.max(zone.minSize.w / cols, zone.minSize.h / rows));
+    const siblings = inLobes ? [] : siblingZoneRects(zone.id);
+    // Never below where it already is: a zone that already overlaps a
+    // neighbour can still be made smaller or left alone.
+    const maxScale = Math.max(
+      startScale,
+      Math.min((r.w + room.left + room.right) / cols, (r.h + room.up + room.down) / rows)
     );
     drag.current = {
       mode: 'resize',
       id: zone.id,
-      startMouseX: w.x,
-      startMouseY: w.y,
-      startW: zone.rect.w,
-      startH: zone.rect.h,
-      minW,
-      minH,
-      maxW,
-      maxH
+      cols,
+      rows,
+      cx,
+      cy,
+      inLobes,
+      start: { x: r.x, y: r.y, w: r.w, h: r.h },
+      room,
+      // Growing both ways can also reach a sibling off at a diagonal; any
+      // sibling not already too close when the resize started is a wall.
+      walls: siblings.filter((o) => !rectsNear({ x: r.x, y: r.y, w: r.w, h: r.h }, o, ZONE_GAP)),
+      minScale,
+      maxScale,
+      // How far the grab point is from the rect's bottom-right corner.
+      cornerOffX: r.x + r.w - w.x,
+      cornerOffY: r.y + r.h - w.y,
+      moved: false
     };
   }
 
@@ -641,8 +787,7 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
     } else if (d.mode === 'node') {
       const w = screenToWorld(e);
       d.moved = true;
-      let next = { x: w.x + d.offX, y: w.y + d.offY };
-      if (d.zoneRect) next = clampStopToZone(next, d.zoneRect, d.header, d.footprint);
+      const next = clampStop({ x: w.x + d.offX, y: w.y + d.offY }, d);
       setPos((p) => ({ ...p, [d.id]: next }));
     } else if (d.mode === 'zone') {
       const w = screenToWorld(e);
@@ -680,12 +825,36 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
       });
     } else if (d.mode === 'resize') {
       const w = screenToWorld(e);
-      // Content bound wins over the parent bound: a zone must always hold
-      // what's inside it, and the parent's grow-only rect stretches to fit.
-      const newW = Math.max(d.minW, Math.min(d.maxW, d.startW + (w.x - d.startMouseX)));
-      const newH = Math.max(d.minH, Math.min(d.maxH, d.startH + (w.y - d.startMouseY)));
+      // Put the zone's corner under the cursor. An inner zone's centre can
+      // move as its lobes grow, so it's read live; anyone else's stays put.
+      const live = d.inLobes ? zoneById.get(d.id) : null;
+      const cx = live ? live.rect.x + live.rect.w / 2 : d.cx;
+      const cy = live ? live.rect.y + live.rect.h / 2 : d.cy;
+      const want = Math.max(
+        (2 * (w.x + d.cornerOffX - cx)) / d.cols,
+        (2 * (w.y + d.cornerOffY - cy)) / d.rows
+      );
+      // What's inside wins over the neighbours: a zone always holds its contents.
+      const scale = Math.max(d.minScale, Math.min(d.maxScale, want));
+      const newW = scale * d.cols;
+      const newH = scale * d.rows;
+      if (!d.inLobes) {
+        // Grow evenly on both sides where there's room; when one side is
+        // blocked, the rest of the growth goes to the other side.
+        const spread = (grow, before, after) => {
+          if (grow <= 0) return grow / 2;
+          let b = Math.min(grow / 2, before);
+          const a = Math.min(grow - b, after);
+          b = Math.min(grow - a, before);
+          return b;
+        };
+        const x = d.start.x - spread(newW - d.start.w, d.room.left, d.room.right);
+        const y = d.start.y - spread(newH - d.start.h, d.room.up, d.room.down);
+        if (d.walls.some((o) => rectsNear({ x, y, w: newW, h: newH }, o, ZONE_GAP))) return;
+        setPos((p) => ({ ...p, [d.id]: { x, y } }));
+      }
       d.moved = true;
-      setSizes((s) => ({ ...s, [d.id]: { w: newW, h: newH } }));
+      setSizes((s) => ({ ...s, [d.id]: { ...s[d.id], w: newW, h: newH } }));
     }
   }
 
@@ -700,16 +869,30 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
       }
       let x = Math.round(pos[d.id].x / GRID) * GRID;
       let y = Math.round(pos[d.id].y / GRID) * GRID;
-      if (d.zoneRect) {
-        const c = clampStopToZone({ x, y }, d.zoneRect, d.header, d.footprint);
-        x = c.x;
-        y = c.y;
-      }
+      const c = clampStop({ x, y }, d);
+      x = c.x;
+      y = c.y;
       setPos((prev) => ({ ...prev, [d.id]: { x, y } }));
-      savePosition(d.id, x, y);
+      if (d.heldZoneId && sizes[d.heldZoneId] && pos[d.heldZoneId]) {
+        // Save the held octagon (position and size together) so a reload matches.
+        const held = sizes[d.heldZoneId];
+        const hp = { x: Math.round(pos[d.heldZoneId].x), y: Math.round(pos[d.heldZoneId].y) };
+        savedPosRef.current.set(d.heldZoneId, hp);
+        api
+          .update('places', d.heldZoneId, {
+            mapX: hp.x,
+            mapY: hp.y,
+            mapW: Math.round(held.w),
+            mapH: Math.round(held.h),
+            mapLobes: held.lobes ?? null
+          })
+          .catch((e) => setStatus(e.message));
+      }
+      needsSaveRef.current = true;
+      setSaveTick((t) => t + 1);
     } else if (d.mode === 'zone') {
       if (!d.moved) {
-        setSelectedId(d.id === selectedId ? null : d.id);
+        setSelectedId(d.clickedId === selectedId ? null : d.clickedId);
         return;
       }
       const zp = pos[d.id];
@@ -734,12 +917,21 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
       // on the next render: its rect is centred on the anchor until a size
       // is saved, and this move just repointed that anchor at the rect's
       // top-left instead of its old centre.
-      setSizes((s) => ({ ...s, [d.id]: { w: d.rectW, h: d.rectH } }));
+      setSizes((s) => ({ ...s, [d.id]: { ...s[d.id], w: d.rectW, h: d.rectH } }));
+      // The zone's position and size go together; everything inside it is
+      // saved by the after-drag effect.
+      savedPosRef.current.set(d.id, { x: Math.round(x), y: Math.round(y) });
+      needsSaveRef.current = true;
+      setSaveTick((t) => t + 1);
       setStatus('Saving…');
-      Promise.all([
-        api.update('places', d.id, { mapX: x, mapY: y, mapW: Math.round(d.rectW), mapH: Math.round(d.rectH) }),
-        ...updates.slice(1).map((u) => api.update('places', u.id, { mapX: u.x, mapY: u.y }))
-      ])
+      api
+        .update('places', d.id, {
+          mapX: x,
+          mapY: y,
+          mapW: Math.round(d.rectW),
+          mapH: Math.round(d.rectH),
+          mapLobes: sizes[d.id]?.lobes ?? null
+        })
         .then(() => {
           setStatus('Saved ✓');
           setTimeout(() => setStatus(''), 1200);
@@ -747,8 +939,18 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
         .catch((e) => setStatus(e.message));
     } else if (d.mode === 'resize') {
       const s = sizes[d.id];
-      if (s && d.moved) {
-        api.update('places', d.id, { mapW: Math.round(s.w), mapH: Math.round(s.h) }).catch((e) => setStatus(e.message));
+      const p = pos[d.id];
+      if (s && p && d.moved) {
+        // It grew about its centre, so its top-left moved too; the after-drag
+        // effect sees it's already saved.
+        const x = Math.round(p.x);
+        const y = Math.round(p.y);
+        savedPosRef.current.set(d.id, { x, y });
+        api
+          .update('places', d.id, { mapX: x, mapY: y, mapW: Math.round(s.w), mapH: Math.round(s.h), mapLobes: s.lobes ?? null })
+          .catch((e) => setStatus(e.message));
+        needsSaveRef.current = true;
+        setSaveTick((t) => t + 1);
       }
     }
   }
@@ -789,40 +991,38 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
             // NaN rect — an empty/undefined rect would otherwise still reach
             // the SVG attributes below and silently fail to paint.
             if (!r0 || [r0.x, r0.y, r0.w, r0.h].some((n) => !Number.isFinite(n))) return null;
+            if (zone.lobes.some((l) => ![l.x, l.y, l.w, l.h, l.cut].every(Number.isFinite))) return null;
             // Deeper (more nested) zones get a stronger tint so a small inner
             // zone (Cogs) reads as a distinct patch inside the paler outer
             // band (Shardn) — color-mix keeps both themed via --accent-strong.
             const tintPct = 7 + Math.min(zone.depth, 3) * 10;
             const tint = `color-mix(in srgb, var(--accent-strong) ${tintPct}%, transparent)`;
             const strokeTint = `color-mix(in srgb, var(--accent-strong) ${Math.min(tintPct + 25, 70)}%, transparent)`;
-            const r = zone.rect;
             const badges = badgesFor(zone.id, noteMatch, npcsByPlace, showNotes, showNpcs);
+            // One octagon, or several joined into one outline for a lobed
+            // zone. The header (name, badges, list) sits on the top-left-most
+            // lobe, indented to clear its cut corner; the resize handle on
+            // the bottom-right lobe's diagonal.
+            const outline = lobesPath(zone.lobes);
+            const head = zone.lobes[zone.labelLobe];
+            const hx = head.x + labelInset(head.cut);
+            const handle = zone.lobes[zone.handleLobe];
             return (
               <g key={zone.id} className="map-zone">
-                <rect
+                <path
                   className="map-zone-fill"
-                  x={r.x}
-                  y={r.y}
-                  width={r.w}
-                  height={r.h}
-                  rx={ZONE_CORNER_RADIUS}
-                  ry={ZONE_CORNER_RADIUS}
+                  d={outline}
                   style={{ fill: tint, stroke: strokeTint, strokeWidth: 2 }}
                 />
-                <rect
+                <path
                   className="map-zone-border-band"
-                  x={r.x}
-                  y={r.y}
-                  width={r.w}
-                  height={r.h}
-                  rx={ZONE_CORNER_RADIUS}
-                  ry={ZONE_CORNER_RADIUS}
+                  d={outline}
                   onMouseDown={(e) => onZoneMouseDown(e, zone)}
                 />
                 <text
                   className="map-zone-label"
-                  x={r.x + 14}
-                  y={r.y + 22}
+                  x={hx}
+                  y={head.y + 22}
                   onMouseDown={(e) => onZoneMouseDown(e, zone)}
                 >
                   {zone.name}
@@ -831,7 +1031,7 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
                   <g
                     key={b.icon}
                     className="map-badge"
-                    transform={`translate(${r.x + 14 + i * 46}, ${r.y + 30})`}
+                    transform={`translate(${hx + i * 46}, ${head.y + 30})`}
                     onMouseDown={(e) => e.stopPropagation()}
                     onClick={() => setSelectedId(zone.id)}
                   >
@@ -842,17 +1042,18 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
                 ))}
                 <NoteNpcList
                   id={zone.id}
-                  x={r.x + 14}
-                  y={r.y + 58}
+                  x={hx}
+                  y={head.y + 58}
                   noteMatch={noteMatch}
                   npcsByPlace={npcsByPlace}
                   showNotes={showNotes}
                   showNpcs={showNpcs}
                 />
+                {/* Sits on the middle of the bottom-right diagonal edge. */}
                 <rect
                   className="map-zone-resize-handle"
-                  x={r.x + r.w - RESIZE_HANDLE}
-                  y={r.y + r.h - RESIZE_HANDLE}
+                  x={handle.x + handle.w - handle.cut / 2 - RESIZE_HANDLE / 2}
+                  y={handle.y + handle.h - handle.cut / 2 - RESIZE_HANDLE / 2}
                   width={RESIZE_HANDLE}
                   height={RESIZE_HANDLE}
                   rx="3"
@@ -864,11 +1065,11 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
           {lineEdges.map((e, i) => {
             const zoneA = zoneById.get(e.a);
             const zoneB = zoneById.get(e.b);
-            const rawA = zoneA ? rectCenter(zoneA.rect) : pos[e.a];
-            const rawB = zoneB ? rectCenter(zoneB.rect) : pos[e.b];
+            const rawA = zoneA ? rectCenter(zoneA.rect) : layoutPos[e.a];
+            const rawB = zoneB ? rectCenter(zoneB.rect) : layoutPos[e.b];
             if (!rawA || !rawB) return null;
-            const a = zoneA ? edgeAttachPoint(zoneA.rect, rawB) : rawA;
-            const b = zoneB ? edgeAttachPoint(zoneB.rect, rawA) : rawB;
+            const a = zoneA ? lobesAttachPoint(zoneA.lobes, rawB) : rawA;
+            const b = zoneB ? lobesAttachPoint(zoneB.lobes, rawA) : rawB;
             return (
               <path
                 key={i}
@@ -882,7 +1083,7 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
             );
           })}
           {places.filter((p) => !zoneById.has(p._id)).map((p) => {
-            const pt = pos[p._id];
+            const pt = layoutPos[p._id];
             if (!pt || Number.isNaN(pt.x) || Number.isNaN(pt.y)) return null;
             const isInterchange = (degree[p._id] || 0) > 1;
             // Badges give the at-a-glance count; the full card (click a badge
@@ -983,7 +1184,7 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
             <div className="map-legend-row">
               <span
                 className="map-legend-swatch map-legend-zone"
-                style={{ background: 'color-mix(in srgb, var(--accent-strong) 22%, transparent)' }}
+                style={{ background: 'color-mix(in srgb, var(--accent-strong) 45%, transparent)' }}
               />
               Zone (city / region / contains)
             </div>
@@ -1089,7 +1290,7 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
 
       <div className="map-hint">
         Drag stations to arrange (they stay inside their zone) · drag a zone by its name or edge
-        to move it, or its bottom-right corner to resize · click a station or zone for details ·
+        to move it (zones inside a zone move with it), or the handle on its bottom-right edge to resize · click a station or zone for details ·
         scroll or Ctrl +/− to zoom · drag the background to pan
       </div>
     </div>

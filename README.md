@@ -86,13 +86,14 @@ it shows how places connect, not exact distances.
 | **Small dot** with a name | A place (a "station"). |
 | **Larger dot with a thick ring** | An *interchange*: a place on two or more lines. |
 | **Coloured line** between places | A connection you wrote in a place's location blocks. The colour is the block type: **On the route**, **Near**, **Between**, **Direction** or **Note**. The legend in the bottom-left lists the ones your map uses. |
-| **Tinted rounded box** with a name in its corner | A *zone*: a place that other places sit inside — a region, a city, a castle. Made with **Inside** or **Contains** blocks. Boxes nest, and deeper boxes are shaded darker. |
+| **Tinted octagon** with a name at the top | A *zone*: a place that other places sit inside — a region, a city, a castle. Made with **Inside** or **Contains** blocks. Zones nest, and deeper zones are shaded darker. A zone is always a regular octagon: it grows evenly to fit what's inside it. |
+| **Joined octagons** | A zone holding one, two or three smaller zones. Each smaller zone sits in the middle of its own octagon, in alphabetical order: side by side for two, an L shape for three. The zone's own places sit in the band around them. With four or more smaller zones it's one big octagon again. |
 | 📜 **3** badge | Three notes mention this place. |
 | 🧙 **2** badge | Two NPCs have this place in their **Location**. |
 | *📜 Italic titles* under a place | A preview of those notes (up to four). |
 | **●** coloured dot and a name | A preview of those NPCs. The dot's colour shows how friendly they are (see [Characters](#characters-)). |
 | **+2 more…** | More notes or NPCs than fit. Click the place to see them all. |
-| Small square in a zone's bottom-right corner | Drag it to resize the zone. |
+| Small square on a zone's bottom-right edge | Drag it to scale the zone up or down. It grows evenly on all sides (away from a neighbour if one is in the way) and never gets smaller than its contents. |
 | **📜 Unplaced notes** panel (top right) | Notes that don't mention any place yet. Click one to open it. **oldest ↑ / newest ↑** flips the order. |
 
 ### Buttons and controls
@@ -104,7 +105,7 @@ it shows how places connect, not exact distances.
 | **Auto-arrange** | Tidy the whole map into a neat layout, zones included. It replaces any positions you dragged by hand. |
 | **Click a place or zone** | Opens its info card: type, connections, what it's inside or contains, every note and NPC there, and its description. Click a note or NPC to jump to it, or **Open in Places** to edit the place. |
 | **Drag a place** | Move it. Places inside a zone stay inside that zone. |
-| **Drag a zone** by its name or edge | Move it, along with everything inside it. |
+| **Drag a zone** by its name or edge | Move it, along with everything inside it. A zone inside joined octagons moves the whole outer zone. |
 | **Scroll**, or **Ctrl +** / **Ctrl −** | Zoom in and out. **Ctrl 0** resets the zoom. |
 | **Drag the empty background** | Pan around. |
 

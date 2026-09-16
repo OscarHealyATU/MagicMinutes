@@ -2378,9 +2378,10 @@ input:focus, select:focus, textarea:focus {
 }
 
 .map-legend-zone {
-  border-radius: 4px;
   width: 14px;
   height: 14px;
+  border-radius: 0;
+  clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
 }
 
 .map-conn-label-zone {
@@ -2404,7 +2405,7 @@ input:focus, select:focus, textarea:focus {
   color: var(--text);
 }
 
-/* Rounded-rect zones (replaces the old convex-hull blobs). The fill stays
+/* Octagon zones (drawn from the layout rect; see octagonPath in mapZones.mjs). The fill stays
    click-through so panning the background and clicking a stop inside a zone
    still work — only the border band, label, badges and resize handle opt
    back into pointer-events. */

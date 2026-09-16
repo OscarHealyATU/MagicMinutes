@@ -10,7 +10,25 @@ import {
   descendantsOf,
   edgeAttachPoint,
   isZone,
+  octagonSideFor,
+  smallestSquareAround,
+  squareFits,
+  layoutZones,
+  lobedGeometry,
+  lobesAttachPoint,
+  lobesOutline,
+  lobesPath,
+  boxFitsLobes,
+  clampPointToLobes,
+  pointInLobes,
+  stationBox,
+  OCTAGON_MAX_CUT,
+  octagonAttachPoint,
+  octagonCut,
+  octagonPath,
+  octagonPoints,
   packLayout,
+  pointInOctagon,
   pushRectClear,
   resizeLimits,
   stationFootprint,
@@ -230,7 +248,7 @@ await test('zoneRects: every member stop and child zone sits inside its zone, ou
     whisperingPage: { x: 700, y: 700 },
     ironRootForge: { x: 750, y: 750 }
   };
-  const zones = zoneRects(places, positions, containment);
+  const { zones, positions: laid } = layoutZones(places, positions, containment);
   const byId = new Map(zones.map((z) => [z.id, z]));
 
   // shardn, cogs and upperMenthis all have children -> zones. Choir Furnace
@@ -244,8 +262,9 @@ await test('zoneRects: every member stop and child zone sits inside its zone, ou
 
   for (const zone of zones) {
     for (const memberId of zone.memberIds) {
-      const pt = positions[memberId];
+      const pt = laid[memberId];
       assert.ok(pointInRect(pt, zone.rect), `${memberId} should fall inside the ${zone.name} rect`);
+      assert.ok(pointInLobes(zone.lobes, pt), `${memberId} should fall inside the ${zone.name} outline`);
     }
     for (const childId of zone.childZoneIds) {
       const childRect = byId.get(childId).rect;
@@ -254,40 +273,68 @@ await test('zoneRects: every member stop and child zone sits inside its zone, ou
   }
 });
 
-await test('zoneRects: a saved rect is grown to cover new contents but never shrunk', () => {
+await test('zoneRects: zones are always square, so they draw as regular octagons', () => {
+  const { places, containment } = (() => {
+    const ps = [
+      { _id: 'city', name: 'City', type: 'City', connections: [] },
+      { _id: 'a', name: 'Alpha', type: 'Landmark', connections: [{ type: 'inside', text: 'City' }] },
+      { _id: 'b', name: 'Bravo', type: 'Landmark', connections: [{ type: 'inside', text: 'City' }] }
+    ];
+    return { places: ps, containment: buildContainment(ps, buildEdges(ps)) };
+  })();
+  // A wide row of places.
+  const positions = { city: { x: 0, y: 0 }, a: { x: 0, y: 0 }, b: { x: 900, y: 0 } };
+  const { zones } = layoutZones(places, positions, containment);
+  const z = zones[0];
+  assert.equal(z.rect.w, z.rect.h);
+  assert.equal(z.lobes[0].cut, octagonCut(z.rect, Infinity), 'regular, uncapped corners');
+  assert.ok(z.lobes[0].cut > OCTAGON_MAX_CUT);
+  assert.ok(squareFits(z.rect, z.contentBounds), 'contents clear the cut corners');
+});
+
+await test('zoneRects: a saved square grows evenly to cover new contents but never shrinks; a stretched legacy size is ignored', () => {
   const places = [
-    { _id: 'city', name: 'City', type: 'City', connections: [], mapX: 0, mapY: 0, mapW: 500, mapH: 400 }
+    { _id: 'city', name: 'City', type: 'City', connections: [], mapX: 0, mapY: 0, mapW: 500, mapH: 500 }
   ];
   const containment = { childrenOf: {}, depthOf: { city: 0 } };
-  // No members, so the only pressure on the rect is the saved size itself.
-  const zones = zoneRects(places, { city: { x: 0, y: 0 } }, containment);
-  const rect = zones[0].rect;
-  assert.equal(rect.w, 500);
-  assert.equal(rect.h, 400);
+  const rect = zoneRects(places, { city: { x: 0, y: 0 } }, containment)[0].rect;
+  assert.deepEqual(rect, { x: 0, y: 0, w: 500, h: 500 });
 
-  // Now add a member far outside the saved rect — it must grow to cover it,
-  // but the parts that already fit inside stay put (grow-only, not re-fit).
   const places2 = [
     ...places,
     { _id: 'stop', name: 'Stop', type: 'Landmark', connections: [{ type: 'inside', text: 'City' }] }
   ];
-  const edges2 = buildEdges(places2);
-  const containment2 = buildContainment(places2, edges2);
+  const containment2 = buildContainment(places2, buildEdges(places2));
   const positions2 = { city: { x: 0, y: 0 }, stop: { x: 1000, y: 1000 } };
-  const zones2 = zoneRects(places2, positions2, containment2);
-  const grown = zones2.find((z) => z.id === 'city').rect;
-  assert.ok(grown.w > 500 && grown.h > 400, 'rect should have grown to cover the far-away member');
-  assert.ok(pointInRect(positions2.stop, grown));
-  // The original saved top-left is still covered (never shrunk away from).
-  assert.ok(grown.x <= 0 && grown.y <= 0);
+  const zone = layoutZones(places2, positions2, containment2).zones.find((z) => z.id === 'city');
+  assert.equal(zone.rect.w, zone.rect.h);
+  assert.ok(zone.rect.w > 500);
+  assert.ok(squareFits(zone.rect, zone.contentBounds));
+  const r = zone.rect;
+  assert.ok(r.x <= 0 && r.y <= 0 && r.x + r.w >= 500 && r.y + r.h >= 500, 'still covers where it was');
+
+  const legacy = [{ _id: 'city', name: 'City', type: 'City', connections: [], mapX: 0, mapY: 0, mapW: 1500, mapH: 300 }];
+  const lr = zoneRects(legacy, { city: { x: 0, y: 0 } }, containment)[0].rect;
+  assert.ok(lr.w < 1500 && lr.w === lr.h, 'an old stretched size is not blown up into a huge square');
 });
 
-await test('zoneRects: a childless zone (bare City/Region) gets the minimum size', () => {
+await test('zoneRects: a childless zone (bare City/Region) gets the minimum square', () => {
   const places = [{ _id: 'city', name: 'Lonely City', type: 'City', connections: [] }];
   const containment = { childrenOf: {}, depthOf: { city: 0 } };
   const zones = zoneRects(places, { city: { x: 50, y: 50 } }, containment, { minW: 120, minH: 80 });
   assert.equal(zones[0].rect.w, 120);
-  assert.equal(zones[0].rect.h, 80);
+  assert.equal(zones[0].rect.h, 120);
+  assert.equal(zones[0].rect.x + 60, 50, 'centred on its anchor');
+});
+
+await test('octagonSideFor/smallestSquareAround: the header fits the straight top edge and contents clear the corners', () => {
+  const side = octagonSideFor(300, 100, 250);
+  const cut = octagonCut({ w: side, h: side }, Infinity);
+  assert.ok(side - 2 * cut >= 250 - 1, 'top edge long enough for the header');
+  const box = { x: 10, y: 20, w: 300, h: 100 };
+  const sq = smallestSquareAround(160, 70, box);
+  assert.ok(squareFits(sq, box));
+  assert.ok(!squareFits({ x: sq.x + 3, y: sq.y + 3, w: sq.w - 6, h: sq.h - 6 }, box), 'and it is close to the smallest');
 });
 
 // ---------- stationFootprint ----------
@@ -339,7 +386,7 @@ await test('zoneRects: a member\'s text footprint, not just its point, is covere
   assert.ok(rect.y + rect.h >= positions.skySpireTowers.y + footprint.down + pad, 'rect should reach past the station\'s footprint on the bottom');
 });
 
-await test('zoneRects: opts.headerOf reserves a per-zone header instead of the flat labelHeadroom (Cogs case)', () => {
+await test('zoneRects: opts.headerOf reserves a per-zone header above the places (Cogs case)', () => {
   const places = [
     { _id: 'cogs', name: 'Cogs', type: 'City', connections: [] },
     { _id: 'redHammerPub', name: 'The Red Hammer Pub', type: 'Shop / Inn', connections: [] }
@@ -348,14 +395,17 @@ await test('zoneRects: opts.headerOf reserves a per-zone header instead of the f
   const positions = { cogs: { x: 0, y: 0 }, redHammerPub: { x: 400, y: 100 } };
   const pad = 36;
   const header = 30 + 20 + 13 * 3 + 8; // label + badges + a 3-line list + margin = 97
-  assert.equal(header, 97);
-  const zones = zoneRects(places, positions, containment, {
-    pad,
-    footprintOf: () => ({ right: 0, down: 0 }), // isolate the header's effect on the top edge
-    headerOf: (id) => (id === 'cogs' ? header : null)
-  });
-  const rect = zones.find((z) => z.id === 'cogs').rect;
-  assert.equal(rect.y, 100 - pad - header);
+  const zone = (h) =>
+    layoutZones(places, positions, containment, {
+      pad,
+      footprintOf: () => ({ right: 0, down: 0 }),
+      headerOf: (id) => (id === 'cogs' ? h : null)
+    }).zones[0];
+  const z = zone(header);
+  assert.equal(z.contentBounds.y, 100 - 16 - pad - header, 'the dot sits 16px above the point');
+  assert.ok(100 - z.rect.y >= header + pad, 'the place sits below the header');
+  assert.equal(z.stationObstacles[0].h, header, 'places are kept off the header');
+  assert.ok(zone(header).rect.w > zone(28).rect.w, 'a taller header makes a bigger octagon');
 });
 
 await test('zoneRects: a headerOf of exactly 0 is honoured, not replaced by the labelHeadroom fallback', () => {
@@ -371,7 +421,7 @@ await test('zoneRects: a headerOf of exactly 0 is honoured, not replaced by the 
     footprintOf: () => ({ right: 0, down: 0 }),
     headerOf: () => 0
   });
-  assert.equal(zones[0].rect.y, 100 - 36 - 0);
+  assert.equal(zones[0].contentBounds.y, 100 - 16 - 36 - 0);
 });
 
 // ---------- clamping a station's footprint inside its zone ----------
@@ -549,6 +599,418 @@ await test('edgeAttachPoint: a point already inside the rect attaches to the nea
   assert.deepEqual(edgeAttachPoint(rect, { x: 60, y: 10 }), { x: 60, y: 0 }); // top is closest
   assert.deepEqual(edgeAttachPoint(rect, { x: 95, y: 40 }), { x: 100, y: 40 }); // right is closest
   assert.deepEqual(edgeAttachPoint(rect, { x: 50, y: 50 }), { x: 50, y: 50 }); // dead centre: nowhere better
+});
+
+// ---------- octagon zones ----------
+
+await test('octagonCut: regular-octagon proportion of the short side, capped', () => {
+  assert.equal(OCTAGON_MAX_CUT, 64);
+  assert.equal(octagonCut({ x: 0, y: 0, w: 1000, h: 600 }), OCTAGON_MAX_CUT);
+  assert.equal(octagonCut({ x: 0, y: 0, w: 120, h: 80 }), 23); // 80 / (2 + sqrt 2), rounded
+  assert.equal(octagonCut({ x: 0, y: 0, w: 0, h: 50 }), 0);
+  assert.equal(octagonCut({ x: 0, y: 0, w: NaN, h: 50 }), 0);
+});
+
+await test('octagonCut: a square zone under the cap is a regular octagon (all sides equal)', () => {
+  for (const side of [80, 150, 200]) {
+    const rect = { x: 0, y: 0, w: side, h: side };
+    const pts = octagonPoints(rect, octagonCut(rect));
+    const lengths = pts.map((a, i) => {
+      const b = pts[(i + 1) % pts.length];
+      return Math.hypot(b.x - a.x, b.y - a.y);
+    });
+    const spread = Math.max(...lengths) - Math.min(...lengths);
+    assert.ok(spread <= 2, `${side}px square: sides ${lengths.map((l) => l.toFixed(1)).join(', ')}`);
+  }
+});
+
+await test('octagonPoints: eight points, all on the rect boundary, and a closed path', () => {
+  const rect = { x: 10, y: 20, w: 300, h: 200 };
+  const pts = octagonPoints(rect, 30);
+  assert.equal(pts.length, 8);
+  for (const p of pts) {
+    const onEdge = p.x === 10 || p.x === 310 || p.y === 20 || p.y === 220;
+    assert.ok(onEdge, `point ${p.x},${p.y} should lie on the rect edge`);
+  }
+  assert.deepEqual(pts[0], { x: 40, y: 20 });
+  assert.deepEqual(pts[2], { x: 310, y: 50 });
+  assert.match(octagonPath(rect, 30), /^M 40 20 L .* Z$/);
+});
+
+await test('octagonPoints: a cut bigger than the rect allows is clamped, not inverted', () => {
+  const pts = octagonPoints({ x: 0, y: 0, w: 40, h: 20 }, 100);
+  for (const p of pts) {
+    assert.ok(p.x >= 0 && p.x <= 40 && p.y >= 0 && p.y <= 20);
+  }
+});
+
+await test('pointInOctagon: corners are cut, the middle and flat edges are not', () => {
+  const rect = { x: 0, y: 0, w: 200, h: 100 };
+  assert.equal(pointInOctagon(rect, { x: 100, y: 50 }, 30), true);
+  assert.equal(pointInOctagon(rect, { x: 100, y: 0 }, 30), true);
+  assert.equal(pointInOctagon(rect, { x: 5, y: 5 }, 30), false); // in the rect, but in a cut corner
+  assert.equal(pointInOctagon(rect, { x: 195, y: 95 }, 30), false);
+  assert.equal(pointInOctagon(rect, { x: 250, y: 50 }, 30), false); // outside the rect altogether
+});
+
+await test('octagon zones never clip content clamped with the normal zone padding', () => {
+  // clampPointToRect keeps stops (and the far corner of their text) at least
+  // `pad` in from each edge; even the biggest cut must leave those inside.
+  const pad = 36;
+  for (const [w, h] of [[120, 80], [260, 180], [900, 500], [2000, 1400]]) {
+    const rect = { x: 50, y: -30, w, h };
+    const cut = octagonCut(rect);
+    const corners = [
+      { x: rect.x + pad, y: rect.y + pad },
+      { x: rect.x + w - pad, y: rect.y + pad },
+      { x: rect.x + pad, y: rect.y + h - pad },
+      { x: rect.x + w - pad, y: rect.y + h - pad }
+    ];
+    for (const c of corners) {
+      assert.ok(pointInOctagon(rect, c, cut), `${w}x${h}: ${c.x},${c.y} should be inside the octagon`);
+    }
+  }
+});
+
+await test('octagonAttachPoint: straight-on lines land on the flat edge, diagonal ones on the cut', () => {
+  const rect = { x: 0, y: 0, w: 200, h: 200 };
+  const cut = 36;
+  assert.deepEqual(octagonAttachPoint(rect, { x: 500, y: 100 }, cut), { x: 200, y: 100 });
+
+  // Towards the top-right corner: must stop on the diagonal, not the invisible corner.
+  const p = octagonAttachPoint(rect, { x: 400, y: -200 }, cut);
+  assert.ok(p.x < 200 && p.y > 0, 'stops short of the rect corner');
+  assert.ok(Math.abs((200 - p.x) + p.y - cut) < 1e-6, `(${p.x}, ${p.y}) should lie on the top-right cut`);
+});
+
+await test('octagonAttachPoint: from inside the box it goes to the nearest outline point', () => {
+  const rect = { x: 0, y: 0, w: 100, h: 100 };
+  assert.deepEqual(octagonAttachPoint(rect, { x: 50, y: 50 }, 20), { x: 50, y: 50 }); // dead centre
+  assert.deepEqual(octagonAttachPoint(rect, { x: 50, y: 8 }, 20), { x: 50, y: 0 }); // top edge
+  const corner = octagonAttachPoint(rect, { x: 4, y: 4 }, 20); // in the cut-off corner
+  assert.ok(Math.abs(corner.x + corner.y - 20) < 1e-6, 'lands on the top-left diagonal');
+});
+
+await test('octagonAttachPoint: with no cut it matches the rect version', () => {
+  const rect = { x: 0, y: 0, w: 300, h: 120 };
+  for (const from of [{ x: 900, y: 40 }, { x: -50, y: -400 }, { x: 150, y: 600 }]) {
+    const a = octagonAttachPoint(rect, from, 0);
+    const b = edgeAttachPoint(rect, from);
+    assert.ok(Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6);
+  }
+});
+
+// ---------- lobed zones (1-3 inner zones) ----------
+
+const kid = (w, h, cornerCut = 23) => ({ w, h, cornerCut });
+
+await test('lobedGeometry: 1, 2 and 3 inner zones make a single lobe, a pair and an L', () => {
+  const one = lobedGeometry({ children: [kid(200, 120)] });
+  assert.equal(one.lobes.length, 1);
+  const two = lobedGeometry({ children: [kid(200, 120), kid(200, 120)] });
+  assert.deepEqual(two.lobes.map((l) => [l.x / l.w, l.y / l.h]), [[0, 0], [1, 0]]);
+  assert.equal(two.w, two.lobes[0].w * 2);
+  const three = lobedGeometry({ children: [kid(200, 120), kid(200, 120), kid(200, 120)] });
+  // Bottom-left, bottom-right, top-right; top-left stays empty.
+  assert.deepEqual(three.lobes.map((l) => [l.x / l.w, l.y / l.h]), [[0, 1], [1, 1], [1, 0]]);
+  assert.equal(three.labelLobe, 2, 'the name goes on the top lobe');
+  assert.equal(three.handleLobe, 1, 'the resize handle goes on the bottom-right lobe');
+  assert.throws(() => lobedGeometry({ children: [kid(1, 1), kid(1, 1), kid(1, 1), kid(1, 1)] }));
+});
+
+await test('lobedGeometry: lobes are all the biggest inner zone\'s size, each inner zone centred in its own', () => {
+  const g = lobedGeometry({ children: [kid(400, 300), kid(150, 100)] });
+  assert.equal(g.lobes[0].w, g.lobes[1].w);
+  assert.equal(g.lobes[0].w, 400 + g.band * 2);
+  const small = g.slots[1];
+  const lobe = g.lobes[1];
+  assert.ok(Math.abs(small.x + 75 - (lobe.x + lobe.w / 2)) < 1e-9);
+  assert.ok(Math.abs(small.y + 50 - (lobe.y + lobe.h / 2)) < 1e-9);
+});
+
+await test('lobedGeometry: inner zone corners never poke through a lobe\'s cut corner', () => {
+  for (const [w, h, band] of [[200, 120, 96], [1200, 900, 96], [300, 300, 200], [2000, 150, 96]]) {
+    const innerCut = octagonCut({ w, h });
+    const g = lobedGeometry({ children: [kid(w, h, innerCut)], minBand: band });
+    const lobe = g.lobes[0];
+    const pts = octagonPoints({ x: g.slots[0].x, y: g.slots[0].y, w, h }, innerCut);
+    // Each inner corner point keeps the corner gap from the lobe's diagonal:
+    // perpendicular distance from the line l + t = cut is (l + t - cut) / √2.
+    for (const p of pts) {
+      assert.ok(pointInOctagon(lobe, p, lobe.cut), `${w}x${h}: inner corner ${p.x},${p.y} outside the lobe`);
+      const lt = Math.min(p.x - lobe.x, lobe.x + lobe.w - p.x) + Math.min(p.y - lobe.y, lobe.y + lobe.h - p.y);
+      assert.ok((lt - lobe.cut) / Math.SQRT2 >= 24 - 1, `${w}x${h}: corner gap too small at ${p.x},${p.y}`);
+    }
+  }
+});
+
+await test('lobedGeometry: lobes are square; the band grows to fit places and header; a saved size scales them evenly', () => {
+  const g0 = lobedGeometry({ children: [kid(400, 120)] });
+  assert.equal(g0.lobes[0].w, g0.lobes[0].h, 'square lobes, even for a wide inner zone');
+  const tall = { right: 120, down: 150 };
+  const g = lobedGeometry({ children: [kid(200, 120)], memberFootprints: [tall], header: 20 });
+  assert.ok(g.band >= stationBox({ x: 0, y: 0 }, tall).h + 32);
+  const wide = { right: 400, down: 30 };
+  const gw = lobedGeometry({ children: [kid(200, 120)], memberFootprints: [wide] });
+  const l = gw.lobes[0];
+  assert.ok(l.w - 2 * l.cut >= stationBox({ x: 0, y: 0 }, wide).w + 32 - 1, 'a wide place fits along the straight top edge');
+  const hdr = lobedGeometry({ children: [kid(200, 120)], header: 200, pad: 36 });
+  assert.ok(hdr.band >= 236);
+  const named = lobedGeometry({ children: [kid(100, 100)], headerWidth: 500 });
+  assert.ok(named.lobes[0].w - 2 * named.lobes[0].cut >= 500 - 1, 'a long header fits the top edge');
+
+  const natural = lobedGeometry({ children: [kid(200, 120), kid(200, 120)] });
+  const scaled = lobedGeometry({ children: [kid(200, 120), kid(200, 120)], saved: { w: natural.w + 400, h: natural.h + 200 } });
+  assert.equal(scaled.w, natural.w + 400);
+  assert.equal(scaled.h, natural.h + 200, 'scaled evenly, lobes stay square');
+  assert.equal(scaled.naturalW, natural.w);
+  const tooSmall = lobedGeometry({ children: [kid(200, 120), kid(200, 120)], saved: { w: 10, h: 10 } });
+  assert.equal(tooSmall.w, natural.w, 'never smaller than it needs to be');
+});
+
+await test('lobesOutline/lobesPath: shared edges disappear and the outline is one closed loop', () => {
+  const two = lobedGeometry({ children: [kid(200, 120), kid(200, 120)] }).lobes;
+  assert.equal(lobesOutline(two).length, 14);
+  const three = lobedGeometry({ children: [kid(200, 120), kid(200, 120), kid(200, 120)] }).lobes;
+  assert.equal(lobesOutline(three).length, 20);
+  for (const lobes of [two, three]) {
+    const path = lobesPath(lobes);
+    assert.equal((path.match(/M /g) || []).length, 1, 'one subpath');
+    assert.ok(path.endsWith('Z'));
+  }
+  const single = lobedGeometry({ children: [kid(200, 120)] }).lobes;
+  assert.equal(lobesOutline(single).length, 8);
+});
+
+await test('lobesAttachPoint: a line lands on the lobe nearest where it comes from', () => {
+  const lobes = lobedGeometry({ children: [kid(200, 120), kid(200, 120)] }).lobes;
+  const [left, right] = lobes;
+  const fromRight = lobesAttachPoint(lobes, { x: right.x + right.w + 500, y: right.y + right.h / 2 });
+  assert.ok(Math.abs(fromRight.x - (right.x + right.w)) < 1e-6);
+  const fromLeft = lobesAttachPoint(lobes, { x: left.x - 500, y: left.y + left.h / 2 });
+  assert.ok(Math.abs(fromLeft.x - left.x) < 1e-6);
+  // From inside, the nearest visible edge — never the hidden shared one.
+  const mid = { x: left.x + left.w - 5, y: left.y + left.h / 2 };
+  const inside = lobesAttachPoint(lobes, mid);
+  const onSharedEdge = Math.abs(inside.x - (left.x + left.w)) < 1 &&
+    inside.y > left.y + left.cut + 1 && inside.y < left.y + left.h - left.cut - 1;
+  assert.ok(!onSharedEdge, `not on the shared edge (got ${inside.x},${inside.y})`);
+});
+
+await test('clampPointToLobes: a place dropped on an inner zone moves to the nearest free spot in the band', () => {
+  const g = lobedGeometry({ children: [kid(300, 200)] });
+  const inner = { ...g.slots[0], w: 300, h: 200 };
+  const fp = { right: 100, down: 40 };
+  const ok = { x: g.lobes[0].w / 2 - 50, y: g.lobes[0].h - g.band / 2 - 10 };
+  assert.ok(boxFitsLobes(stationBox(ok, fp), g.lobes, [inner], 16), 'test point should already fit');
+  assert.deepEqual(clampPointToLobes(ok, fp, g.lobes, [inner], 16), ok, 'a point that fits is left alone');
+  // Every drop point across the inner zone, not just ones that line up with a
+  // search grid — and with a band sized to leave almost no spare height.
+  for (const [footprint, geom] of [[fp, g], [{ right: 150, down: 71 }, lobedGeometry({ children: [kid(300, 200)], memberFootprints: [{ right: 150, down: 71 }] })]]) {
+    const zoneRect = { ...geom.slots[0], w: 300, h: 200 };
+    for (let dx = 0; dx < 300; dx += 7) {
+      for (let dy = 0; dy < 200; dy += 11) {
+        const moved = clampPointToLobes({ x: zoneRect.x + dx, y: zoneRect.y + dy }, footprint, geom.lobes, [zoneRect], 16);
+        assert.ok(boxFitsLobes(stationBox(moved, footprint), geom.lobes, [zoneRect], 16), `no fit found from ${dx},${dy}`);
+      }
+    }
+  }
+  const outside = clampPointToLobes({ x: -900, y: -900 }, fp, g.lobes, [inner], 16);
+  assert.ok(boxFitsLobes(stationBox(outside, fp), g.lobes, [inner], 16));
+});
+
+// Shardn containing three zones (alphabetical: Cogs, Menthis, Skyport), one
+// of which holds a zone of its own, plus Shardn's own places.
+function lobedWorld() {
+  const places = [
+    { _id: 'shardn', name: 'Shardn', type: 'City', connections: [] },
+    { _id: 'menthis', name: 'Upper Menthis', type: 'Region', connections: [{ type: 'inside', text: 'Shardn' }] },
+    { _id: 'cogs', name: 'Cogs', type: 'Region', connections: [{ type: 'inside', text: 'Shardn' }] },
+    { _id: 'sky', name: 'Skyport', type: 'Region', connections: [{ type: 'inside', text: 'Shardn' }] },
+    { _id: 'dock', name: 'Dock Ward', type: 'Region', connections: [{ type: 'inside', text: 'Skyport' }] },
+    { _id: 'furnace', name: 'Choir Furnace', type: 'Landmark', connections: [{ type: 'inside', text: 'Cogs' }] },
+    { _id: 'towers', name: 'SkySpire Towers', type: 'Landmark', connections: [{ type: 'inside', text: 'Upper Menthis' }] },
+    { _id: 'inn', name: 'Skybridge Inn', type: 'Shop / Inn', connections: [{ type: 'inside', text: 'Shardn' }] },
+    { _id: 'port', name: 'Shardn Port', type: 'Landmark', connections: [{ type: 'inside', text: 'Shardn' }] },
+    { _id: 'alley', name: 'Gutter Glint Alley', type: 'Landmark', connections: [{ type: 'inside', text: 'Shardn' }] }
+  ];
+  const containment = buildContainment(places, buildEdges(places));
+  return { places, containment };
+}
+
+await test('layoutZones: inner zones are centred in lobes in alphabetical order, taking their contents with them', () => {
+  const { places, containment } = lobedWorld();
+  const positions = {
+    shardn: { x: 1000, y: 1000 }, menthis: { x: 0, y: 0 }, cogs: { x: 0, y: 0 }, sky: { x: 0, y: 0 },
+    dock: { x: 0, y: 0 }, furnace: { x: 5000, y: 5000 }, towers: { x: -3000, y: 40 },
+    inn: { x: 0, y: 0 }, port: { x: 0, y: 0 }, alley: { x: 0, y: 0 }
+  };
+  const { zones, positions: laid } = layoutZones(places, positions, containment);
+  const z = new Map(zones.map((x) => [x.id, x]));
+  const shardn = z.get('shardn');
+  assert.equal(shardn.lobed, true);
+  assert.equal(shardn.lobes.length, 3);
+  // Cogs -> bottom-left, Skyport -> bottom-right, Upper Menthis -> top-right.
+  const centre = (r) => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
+  ['cogs', 'sky', 'menthis'].forEach((id, i) => {
+    const c = centre(z.get(id).rect);
+    const l = centre(shardn.lobes[i]);
+    assert.ok(Math.abs(c.x - l.x) < 1e-6 && Math.abs(c.y - l.y) < 1e-6, `${id} centred in lobe ${i}`);
+  });
+  // Skyport has one inner zone, so it's lobed too, with Dock Ward centred inside.
+  assert.equal(z.get('sky').lobed, true);
+  const dc = centre(z.get('dock').rect);
+  const sc = centre(z.get('sky').rect);
+  assert.ok(Math.abs(dc.x - sc.x) < 1e-6 && Math.abs(dc.y - sc.y) < 1e-6);
+  // Contents moved with their zone.
+  assert.ok(pointInRect(laid.furnace, z.get('cogs').rect));
+  assert.ok(pointInRect(laid.towers, z.get('menthis').rect));
+  // Shardn's own places are in its band: inside the outline, off the inner zones and each other's zones.
+  for (const id of ['inn', 'port', 'alley']) {
+    assert.ok(pointInLobes(shardn.lobes, laid[id]), `${id} inside Shardn`);
+    for (const inner of ['cogs', 'sky', 'menthis']) {
+      assert.ok(!pointInRect(laid[id], z.get(inner).rect), `${id} not on ${inner}`);
+    }
+  }
+});
+
+await test('layoutZones: a saved size only stretches the lobes when it was saved for the same lobe count', () => {
+  const { places, containment } = lobedWorld();
+  const positions = Object.fromEntries(places.map((p) => [p._id, { x: 0, y: 0 }]));
+  const natural = layoutZones(places, positions, containment).zones.find((z) => z.id === 'shardn').rect;
+  const withSize = (mapLobes) =>
+    places.map((p) => (p._id === 'shardn' ? { ...p, mapX: 0, mapY: 0, mapW: natural.w + 300, mapH: natural.h + 300, mapLobes } : p));
+  const matching = layoutZones(withSize(3), positions, containment).zones.find((z) => z.id === 'shardn').rect;
+  assert.equal(matching.w, natural.w + 300);
+  for (const stale of [2, undefined]) {
+    const r = layoutZones(withSize(stale), positions, containment).zones.find((z) => z.id === 'shardn').rect;
+    assert.equal(r.w, natural.w, `mapLobes ${stale} should be ignored`);
+    assert.equal(r.x, 0, 'but the saved top-left still anchors it');
+  }
+});
+
+await test('layoutZones: 4+ inner zones fall back to one content-sized octagon', () => {
+  const { places, containment: _ } = lobedWorld();
+  const extra = { _id: 'fourth', name: 'Fourth Ward', type: 'Region', connections: [{ type: 'inside', text: 'Shardn' }] };
+  const all = [...places, extra];
+  const containment = buildContainment(all, buildEdges(all));
+  const positions = Object.fromEntries(all.map((p, i) => [p._id, { x: i * 300, y: i * 200 }]));
+  const { zones, positions: laid } = layoutZones(all, positions, containment);
+  const shardn = zones.find((x) => x.id === 'shardn');
+  assert.equal(shardn.lobed, false);
+  assert.equal(shardn.lobes.length, 1);
+  // Its inner zones aren't moved by Shardn (Skyport still centres Dock Ward, though).
+  assert.deepEqual(laid.cogs, positions.cogs);
+});
+
+await test('packLayout + layoutZones: an arranged lobed map is stable and its places don\'t overlap', () => {
+  const { places, containment } = lobedWorld();
+  const fp = { right: 180, down: 70 };
+  const opts = { footprintOf: () => fp };
+  const { positions, sizes } = packLayout(places, containment, opts);
+  // As Auto-arrange saves it: rounded, with the lobe count.
+  const saved = places.map((p) =>
+    sizes[p._id]
+      ? { ...p, mapW: Math.round(sizes[p._id].w), mapH: Math.round(sizes[p._id].h), mapLobes: sizes[p._id].lobes }
+      : p
+  );
+  const { zones, positions: laid } = layoutZones(saved, positions, containment, opts);
+  for (const id of Object.keys(positions)) {
+    assert.ok(
+      Math.abs(laid[id].x - positions[id].x) < 1e-6 && Math.abs(laid[id].y - positions[id].y) < 1e-6,
+      `${id} moved from ${JSON.stringify(positions[id])} to ${JSON.stringify(laid[id])}`
+    );
+  }
+  const shardn = zones.find((x) => x.id === 'shardn');
+  assert.equal(shardn.rect.w, sizes.shardn.w);
+  const boxes = ['inn', 'port', 'alley'].map((id) => stationBox(laid[id], fp));
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i], b = boxes[j];
+      const overlap = a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+      assert.ok(!overlap, 'Shardn\'s places should not overlap each other');
+    }
+  }
+});
+
+await test('packLayout: a lobed zone with more places than its band holds grows until they all fit', () => {
+  const extra = Array.from({ length: 14 }, (_, i) => ({
+    _id: `p${i}`, name: `Place ${i}`, type: 'Landmark', connections: [{ type: 'inside', text: 'Shardn' }]
+  }));
+  const { places } = lobedWorld();
+  const all = [...places, ...extra];
+  const containment = buildContainment(all, buildEdges(all));
+  const fp = { right: 200, down: 90 };
+  const opts = { footprintOf: () => fp };
+  const natural = lobedGeometry({
+    children: [kid(1, 1), kid(1, 1), kid(1, 1)],
+    memberFootprints: [fp]
+  });
+  const { positions, sizes } = packLayout(all, containment, opts);
+  const saved = all.map((p) =>
+    sizes[p._id] ? { ...p, mapW: Math.round(sizes[p._id].w), mapH: Math.round(sizes[p._id].h), mapLobes: sizes[p._id].lobes } : p
+  );
+  const { zones, positions: laid } = layoutZones(saved, positions, containment, opts);
+  const shardn = zones.find((z) => z.id === 'shardn');
+  assert.ok(shardn.rect.w > natural.w, 'it grew');
+  const ids = ['inn', 'port', 'alley', ...extra.map((p) => p._id)];
+  const boxes = ids.map((id) => stationBox(laid[id], fp));
+  ids.forEach((id, i) => {
+    assert.ok(boxFitsLobes(boxes[i], shardn.lobes, shardn.stationObstacles, 16), `${id} is in the band`);
+    assert.deepEqual(laid[id], positions[id], `${id} wasn't moved when drawn`);
+    for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i], b = boxes[j];
+      assert.ok(!(a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y), `${id} overlaps ${ids[j]}`);
+    }
+  });
+});
+
+await test('smallestSquareAround: always fits, and survives rounding the position', () => {
+  let seed = 7;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 2000; i++) {
+    const box = { x: rand() * 400 - 200, y: rand() * 400 - 200, w: rand() * 900 + 1, h: rand() * 900 + 1 };
+    const cx = box.x + box.w * (0.3 + rand() * 0.4);
+    const cy = box.y + box.h * (0.3 + rand() * 0.4);
+    const sq = smallestSquareAround(cx, cy, box, rand() * 300);
+    assert.equal(sq.w, sq.h);
+    assert.ok(squareFits(sq, box), `box ${i} doesn't fit`);
+    assert.ok(squareFits({ ...sq, x: Math.round(sq.x), y: Math.round(sq.y) }, box), `box ${i} doesn't fit after rounding`);
+  }
+});
+
+await test('layoutZones: dropping a place anywhere the drag allows never makes its zone grow', () => {
+  const places = [
+    { _id: 'city', name: 'A City With A Longish Name', type: 'City', connections: [] },
+    ...['a', 'b', 'c', 'd', 'e', 'f'].map((id) => ({ _id: id, name: `Place ${id}`, type: 'Landmark', connections: [{ type: 'inside', text: 'A City With A Longish Name' }] }))
+  ];
+  const containment = buildContainment(places, buildEdges(places));
+  const fp = { right: 170, down: 60 };
+  const opts = { footprintOf: () => fp, headerOf: () => 60, headerWidthOf: () => 240 };
+  const { positions, sizes } = packLayout(places, containment, opts);
+  const saved = places.map((p) => (sizes[p._id] ? { ...p, mapX: Math.round(positions[p._id].x), mapY: Math.round(positions[p._id].y), mapW: sizes[p._id].w, mapH: sizes[p._id].h } : p));
+  const zoneOf = (pos) => layoutZones(saved, pos, containment, opts).zones[0];
+  const start = zoneOf(positions);
+  assert.deepEqual(start.rect, { x: Math.round(positions.city.x), y: Math.round(positions.city.y), w: sizes.city.w, h: sizes.city.w }, 'arranged zone is drawn as saved');
+  const r = start.rect;
+  const targets = [
+    [r.x, r.y], [r.x + r.w / 2, r.y], [r.x + r.w, r.y], [r.x + r.w, r.y + r.h / 2],
+    [r.x + r.w, r.y + r.h], [r.x, r.y + r.h], [r.x, r.y + r.h / 2], [r.x + r.w / 2, r.y + r.h / 2]
+  ];
+  for (const [tx, ty] of targets) {
+    for (const id of ['a', 'f']) {
+      const dropped = clampPointToLobes({ x: tx, y: ty }, fp, start.lobes, start.stationObstacles, start.stationMargin);
+      const z = zoneOf({ ...positions, [id]: dropped });
+      assert.deepEqual(z.rect, r, `${id} dropped near ${tx},${ty} grew the zone`);
+    }
+  }
+});
+
+await test('lobedGeometry: an old stretched saved size is ignored', () => {
+  const natural = lobedGeometry({ children: [kid(200, 200), kid(200, 200)] });
+  const stretched = lobedGeometry({ children: [kid(200, 200), kid(200, 200)], saved: { w: 2400, h: 300 } });
+  assert.equal(stretched.w, natural.w);
+  assert.equal(stretched.h, natural.h);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
