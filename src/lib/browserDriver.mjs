@@ -71,8 +71,9 @@ export async function seedDemoData(driver) {
   }
 
   // ---------- Places ----------
-  // The Vall Marches holds Cairne and Eberald; Cairne holds the inn and the
-  // tannery, so both show up as nested zones. The rest link up as lines.
+  // The Vall Marches holds Cairne and Eberald, which hold the inn, the tannery
+  // and the sealed shaft, so the Marches draws as two joined octagons with a
+  // zone in each. The rest link up as lines.
   await put('places', {
     name: 'The Vall Marches',
     type: 'Region',
@@ -105,6 +106,12 @@ export async function seedDemoData(driver) {
       { type: 'inside', text: 'the hills of The Vall Marches' },
       { type: 'route', text: "the King's Road, two days north of Cairne" }
     ]
+  });
+  await put('places', {
+    name: 'The Sealed Shaft',
+    type: 'Dungeon',
+    description: 'Bricked up after the collapse. Someone keeps unbricking it.',
+    connections: [{ type: 'inside', text: 'the north end of Eberald' }]
   });
   await put('places', {
     name: 'Whispering Falls',

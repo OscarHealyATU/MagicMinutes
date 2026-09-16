@@ -4,6 +4,8 @@
 the people you've met, what happened each session, and your best combat moves — all in
 one small desktop app that works offline and keeps everything on your own computer.
 
+[![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/oscarhealy)
+
 ![The MagicMinutes map, showing places as stations on a tube-style map](docs/screenshots/map.png)
 
 ---
@@ -412,6 +414,13 @@ npm run tauri build    # build an installer
 `npm run dev` serves the app at http://localhost:5179 for an ordinary browser, filled with
 a built-in sample campaign — handy for trying it out without installing anything. More detail, including tests and the
 Android build, is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+---
+
+## Support
+
+MagicMinutes is free and always will be. If it saves your session notes, you can
+[buy me a coffee](https://buymeacoffee.com/oscarhealy) — it's appreciated, never expected.
 
 ---
 
