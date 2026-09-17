@@ -1,6 +1,6 @@
 [package]
 name = "ttrpgmap"
-version = "0.2.0"
+version = "0.3.0"
 description = "MagicMinutes - campaign notes, characters, places, and action combo builder"
 authors = ["Oscar Healy"]
 license = "MIT"

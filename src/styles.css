@@ -2665,3 +2665,20 @@ input:focus, select:focus, textarea:focus {
     flex-direction: column;
   }
 }
+
+/* ---------- AI summaries toggle (Settings) ---------- */
+
+.settings-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.settings-toggle input {
+  margin-top: 3px;
+}

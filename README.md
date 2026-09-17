@@ -43,7 +43,15 @@ characters, sessions — works for any campaign.
 **Windows 10 / 11**
 
 1. Go to the [**Releases page**](https://github.com/OscarHealyATU/MagicMinutes/releases/latest)
-   and download `MagicMinutes_0.1.0_x64-setup.exe`.
+   and download one of the two editions:
+   - **MagicMinutes** (`MagicMinutes_<version>_x64-setup.exe`, a few MB): everything
+     except AI-written session summaries.
+   - **MagicMinutes AI** (`MagicMinutes-AI_<version>_x64-setup.exe`, about 530 MB): the
+     same app with a small AI model built in, which writes session summaries on your own
+     computer, offline.
+
+   They're the same app with the same notes. Installing one over the other switches
+   edition and keeps everything.
 2. Run it. It installs just for you (no administrator password needed) and adds a
    **MagicMinutes** shortcut to your desktop and Start menu.
 3. **Windows may warn you** with a blue "Windows protected your PC" screen. That's because
@@ -302,10 +310,12 @@ session a title and write **your summary**: big moments, cliffhangers, plans for
 
 **✨ Write a summary** drafts one for you from what happened that session:
 
-- If you have [Ollama](https://ollama.com) installed and running, it uses a small AI model
-  **on your own computer**. Nothing is sent over the internet. For best results run
-  `ollama pull gemma3:1b` once.
-- Without Ollama, it writes a plain summary from your session's notes and changes instead.
+- In the **MagicMinutes AI** edition, a small AI model built into the app writes it, **on
+  your own computer**. Nothing is sent over the internet, and it takes a few seconds. It
+  can occasionally muddle a detail, so give it a read. You can switch AI summaries off in
+  **Settings**.
+- In the standard edition, or with AI switched off, it writes a plain summary from your
+  session's notes and changes instead.
 
 It asks before replacing a summary you've already written, and if you start typing while
 it's working, it keeps your version.
@@ -427,8 +437,9 @@ Place field, title, tags or text. Notes that don't mention any place are listed 
 **Auto-arrange moved things I'd placed by hand.** That's what it does — it lays everything
 out from scratch. Drag things back, or import a recent backup with **Replace**.
 
-**Write a summary didn't use AI.** Ollama needs to be installed and running, with a model
-downloaded (`ollama pull gemma3:1b`). Otherwise the plain summary is used.
+**Write a summary didn't use AI.** AI summaries come with the **MagicMinutes AI** edition.
+If you have that edition, check **Settings → AI summaries** is switched on. The message next
+to the button says which case it was.
 
 ---
 
@@ -463,3 +474,11 @@ and share it, including in your own projects, as long as the copyright notice co
 
 The bundled fonts, Jim Nightshade and Quintessential, are under the SIL Open Font License;
 their license files are in [`public/fonts`](public/fonts).
+
+The AI edition also includes:
+- **[Qwen3-0.6B](https://huggingface.co/Qwen/Qwen3-0.6B)** by the Qwen team, Alibaba Cloud,
+  under the Apache License 2.0. MagicMinutes is not affiliated with or endorsed by Qwen.
+- **[llama.cpp](https://github.com/ggml-org/llama.cpp)** by the ggml authors, under the MIT
+  License, with the LLVM OpenMP runtime.
+
+Their licence texts are installed with the app, in the `ai/LICENSES` folder.

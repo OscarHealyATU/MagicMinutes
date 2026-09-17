@@ -53,92 +53,92 @@ async function test(name, fn) {
 // Terse fixture builder: place('id', 'Name', [{type, text}]) -> a place doc.
 const place = (id, name, connections = []) => ({ _id: id, name, connections });
 
-// ---------- the real Shardn / Cogs data from the brief ----------
+// ---------- the real Varrow / Anvils data from the brief ----------
 
-function makeShardnPlaces() {
+function makeVarrowPlaces() {
   return [
-    place('shardn', 'Shardn', [{ type: 'contains', text: 'the Cogs' }]),
-    place('cogs', 'Cogs', [{ type: 'contains', text: 'the Choir Furnace' }]),
-    place('choirFurnace', 'Choir Furnace', []),
-    place('skybridgeInn', 'Skybridge Inn', [{ type: 'inside', text: 'Shardn' }]),
-    place('verdantCrucibel', 'The Verdant Crucibel', [
-      { type: 'inside', text: 'Shardn' },
-      { type: 'near', text: 'The Brass Lantern' }
+    place('varrow', 'Varrow', [{ type: 'contains', text: 'the Anvils' }]),
+    place('anvils', 'Anvils', [{ type: 'contains', text: 'the Ember Forge' }]),
+    place('emberForge', 'Ember Forge', []),
+    place('gildedGooseInn', 'Gilded Goose Inn', [{ type: 'inside', text: 'Varrow' }]),
+    place('greenAlembic', 'The Green Alembic', [
+      { type: 'inside', text: 'Varrow' },
+      { type: 'near', text: 'The Tin Kettle' }
     ]),
-    place('shardnPort', 'Shardn Port', [{ type: 'inside', text: 'Shardn' }]),
-    place('orinnsOffice', "Orinn's office", [{ type: 'inside', text: 'Cogs' }]),
-    place('redHammerPub', 'The Red Hammer Pub', [{ type: 'inside', text: 'Cogs' }]),
-    place('brassLantern', 'The Brass Lantern', [{ type: 'inside', text: 'Cogs' }]),
-    place('upperMenthis', 'Upper Menthis', [
-      { type: 'direction', text: 'above Shardn' },
-      { type: 'contains', text: 'The SkySpire Towers' }
+    place('varrowPort', 'Varrow Port', [{ type: 'inside', text: 'Varrow' }]),
+    place('tobinsOffice', "Tobin's office", [{ type: 'inside', text: 'Anvils' }]),
+    place('saltedBoar', 'The Salted Boar', [{ type: 'inside', text: 'Anvils' }]),
+    place('tinKettle', 'The Tin Kettle', [{ type: 'inside', text: 'Anvils' }]),
+    place('upperEsterly', 'Upper Esterly', [
+      { type: 'direction', text: 'above Varrow' },
+      { type: 'contains', text: 'The Moonspire Towers' }
     ]),
-    place('skySpireTowers', 'The SkySpire Towers', []),
-    place('whisperingPage', 'Whispering Page', [{ type: 'near', text: 'The Brass Lantern' }]),
-    place('ironRootForge', 'Iron Root Forge', [{ type: 'near', text: 'Whispering Page' }])
+    place('moonspireTowers', 'The Moonspire Towers', []),
+    place('whistlingReed', 'Whistling Reed', [{ type: 'near', text: 'The Tin Kettle' }]),
+    place('stonewoodMill', 'Stonewood Mill', [{ type: 'near', text: 'Whistling Reed' }])
   ];
 }
 
-await test('buildEdges: links Whispering Page to Brass Lantern but not Cogs', () => {
-  const places = makeShardnPlaces();
+await test('buildEdges: links Whistling Reed to Tin Kettle but not Anvils', () => {
+  const places = makeVarrowPlaces();
   const edges = buildEdges(places);
-  const wp = edges.filter((e) => e.a === 'whisperingPage' || e.b === 'whisperingPage');
+  const wp = edges.filter((e) => e.a === 'whistlingReed' || e.b === 'whistlingReed');
   assert.ok(
-    wp.some((e) => e.a === 'brassLantern' || e.b === 'brassLantern'),
-    'expected an edge between Whispering Page and The Brass Lantern'
+    wp.some((e) => e.a === 'tinKettle' || e.b === 'tinKettle'),
+    'expected an edge between Whistling Reed and The Tin Kettle'
   );
   assert.ok(
-    !wp.some((e) => e.a === 'cogs' || e.b === 'cogs'),
-    'Whispering Page should not link to Cogs'
+    !wp.some((e) => e.a === 'anvils' || e.b === 'anvils'),
+    'Whistling Reed should not link to Anvils'
   );
 });
 
 await test('buildEdges: records inside/contains edges with a mentioning first', () => {
-  const places = makeShardnPlaces();
+  const places = makeVarrowPlaces();
   const edges = buildEdges(places);
-  const insideEdge = edges.find((e) => e.type === 'inside' && e.a === 'skybridgeInn');
-  assert.ok(insideEdge, 'Skybridge Inn should have an `inside` edge naming Shardn');
-  assert.equal(insideEdge.b, 'shardn');
+  const insideEdge = edges.find((e) => e.type === 'inside' && e.a === 'gildedGooseInn');
+  assert.ok(insideEdge, 'Gilded Goose Inn should have an `inside` edge naming Varrow');
+  assert.equal(insideEdge.b, 'varrow');
 
-  const containsEdge = edges.find((e) => e.type === 'contains' && e.a === 'shardn');
-  assert.ok(containsEdge, 'Shardn should have a `contains` edge naming Cogs');
-  assert.equal(containsEdge.b, 'cogs');
+  const containsEdge = edges.find((e) => e.type === 'contains' && e.a === 'varrow');
+  assert.ok(containsEdge, 'Varrow should have a `contains` edge naming Anvils');
+  assert.equal(containsEdge.b, 'anvils');
 });
 
-await test('buildContainment: builds the exact Shardn / Cogs tree', () => {
-  const places = makeShardnPlaces();
+await test('buildContainment: builds the exact Varrow / Anvils tree', () => {
+  const places = makeVarrowPlaces();
   const edges = buildEdges(places);
   const containment = buildContainment(places, edges);
 
-  assert.equal(containment.parentOf.cogs, 'shardn');
-  assert.equal(containment.parentOf.choirFurnace, 'cogs');
-  assert.equal(containment.parentOf.skybridgeInn, 'shardn');
-  assert.equal(containment.parentOf.verdantCrucibel, 'shardn');
-  assert.equal(containment.parentOf.shardnPort, 'shardn');
-  assert.equal(containment.parentOf.orinnsOffice, 'cogs');
-  assert.equal(containment.parentOf.redHammerPub, 'cogs');
-  assert.equal(containment.parentOf.brassLantern, 'cogs');
-  assert.equal(containment.parentOf.skySpireTowers, 'upperMenthis');
+  assert.equal(containment.parentOf.anvils, 'varrow');
+  assert.equal(containment.parentOf.emberForge, 'anvils');
+  assert.equal(containment.parentOf.gildedGooseInn, 'varrow');
+  assert.equal(containment.parentOf.greenAlembic, 'varrow');
+  assert.equal(containment.parentOf.varrowPort, 'varrow');
+  assert.equal(containment.parentOf.tobinsOffice, 'anvils');
+  assert.equal(containment.parentOf.saltedBoar, 'anvils');
+  assert.equal(containment.parentOf.tinKettle, 'anvils');
+  assert.equal(containment.parentOf.moonspireTowers, 'upperEsterly');
 
   // near/direction never create containment
-  assert.equal(containment.parentOf.whisperingPage, undefined);
-  assert.equal(containment.parentOf.ironRootForge, undefined);
-  assert.equal(containment.parentOf.upperMenthis, undefined);
-  assert.equal(containment.parentOf.shardn, undefined);
+  assert.equal(containment.parentOf.whistlingReed, undefined);
+  assert.equal(containment.parentOf.stonewoodMill, undefined);
+  assert.equal(containment.parentOf.upperEsterly, undefined);
+  assert.equal(containment.parentOf.varrow, undefined);
 
-  assert.deepEqual(new Set(containment.childrenOf.shardn), new Set(['cogs', 'skybridgeInn', 'verdantCrucibel', 'shardnPort']));
-  assert.deepEqual(new Set(containment.childrenOf.cogs), new Set(['choirFurnace', 'orinnsOffice', 'redHammerPub', 'brassLantern']));
-  assert.deepEqual(new Set(containment.childrenOf.upperMenthis), new Set(['skySpireTowers']));
+  assert.deepEqual(new Set(containment.childrenOf.varrow), new Set(['anvils', 'gildedGooseInn', 'greenAlembic', 'varrowPort']));
+  assert.deepEqual(new Set(containment.childrenOf.anvils), new Set(['emberForge', 'tobinsOffice', 'saltedBoar', 'tinKettle']));
+  assert.deepEqual(new Set(containment.childrenOf.upperEsterly), new Set(['moonspireTowers']));
 
-  assert.ok(containment.roots.includes('shardn'));
-  assert.ok(containment.roots.includes('upperMenthis'));
-  assert.ok(!containment.roots.includes('cogs'));
+  assert.ok(containment.roots.includes('varrow'));
+  assert.ok(containment.roots.includes('upperEsterly'));
+  assert.ok(!containment.roots.includes('anvils'));
 
-  assert.equal(containment.depthOf.shardn, 0);
-  assert.equal(containment.depthOf.cogs, 1);
-  assert.equal(containment.depthOf.choirFurnace, 2);
-  assert.equal(containment.depthOf.upperMenthis, 0);
-  assert.equal(containment.depthOf.skySpireTowers, 1);
+  assert.equal(containment.depthOf.varrow, 0);
+  assert.equal(containment.depthOf.anvils, 1);
+  assert.equal(containment.depthOf.emberForge, 2);
+  assert.equal(containment.depthOf.upperEsterly, 0);
+  assert.equal(containment.depthOf.moonspireTowers, 1);
 });
 
 await test('buildContainment: first parent wins', () => {
@@ -167,14 +167,14 @@ await test('buildContainment: drops an edge that would create a cycle', () => {
 // ---------- descendantsOf ----------
 
 await test('descendantsOf: collects grandchildren too', () => {
-  const places = makeShardnPlaces();
+  const places = makeVarrowPlaces();
   const edges = buildEdges(places);
   const containment = buildContainment(places, edges);
-  const desc = descendantsOf('shardn', containment.childrenOf);
-  assert.ok(desc.has('cogs'));
-  assert.ok(desc.has('choirFurnace')); // grandchild via Cogs
-  assert.ok(desc.has('skybridgeInn'));
-  assert.ok(!desc.has('upperMenthis'));
+  const desc = descendantsOf('varrow', containment.childrenOf);
+  assert.ok(desc.has('anvils'));
+  assert.ok(desc.has('emberForge')); // grandchild via Anvils
+  assert.ok(desc.has('gildedGooseInn'));
+  assert.ok(!desc.has('upperEsterly'));
 });
 
 // ---------- isZone ----------
@@ -196,22 +196,22 @@ await test('isZone: a Landmark with a child becomes a zone', () => {
 
 // ---------- zoneRects ----------
 
-function makeShardnPlacesTyped() {
-  const places = makeShardnPlaces();
+function makeVarrowPlacesTyped() {
+  const places = makeVarrowPlaces();
   const types = {
-    shardn: 'Region',
-    cogs: 'City',
-    choirFurnace: 'Town',
-    skybridgeInn: 'Shop / Inn',
-    verdantCrucibel: 'Landmark',
-    shardnPort: 'Landmark',
-    orinnsOffice: 'Landmark',
-    redHammerPub: 'Shop / Inn',
-    brassLantern: 'Landmark',
-    upperMenthis: 'City',
-    skySpireTowers: 'Landmark',
-    whisperingPage: 'Landmark',
-    ironRootForge: 'Landmark'
+    varrow: 'Region',
+    anvils: 'City',
+    emberForge: 'Town',
+    gildedGooseInn: 'Shop / Inn',
+    greenAlembic: 'Landmark',
+    varrowPort: 'Landmark',
+    tobinsOffice: 'Landmark',
+    saltedBoar: 'Shop / Inn',
+    tinKettle: 'Landmark',
+    upperEsterly: 'City',
+    moonspireTowers: 'Landmark',
+    whistlingReed: 'Landmark',
+    stonewoodMill: 'Landmark'
   };
   return places.map((p) => ({ ...p, type: types[p._id] }));
 }
@@ -230,35 +230,35 @@ function rectInRect(inner, outer) {
 }
 
 await test('zoneRects: every member stop and child zone sits inside its zone, outer before inner', () => {
-  const places = makeShardnPlacesTyped();
+  const places = makeVarrowPlacesTyped();
   const edges = buildEdges(places);
   const containment = buildContainment(places, edges);
   const positions = {
-    shardn: { x: 0, y: 0 },
-    cogs: { x: 400, y: 300 },
-    choirFurnace: { x: 420, y: 340 },
-    skybridgeInn: { x: -100, y: 50 },
-    verdantCrucibel: { x: 200, y: -150 },
-    shardnPort: { x: 50, y: 200 },
-    orinnsOffice: { x: 380, y: 260 },
-    redHammerPub: { x: 440, y: 310 },
-    brassLantern: { x: 410, y: 280 },
-    upperMenthis: { x: -500, y: -500 },
-    skySpireTowers: { x: -480, y: -520 },
-    whisperingPage: { x: 700, y: 700 },
-    ironRootForge: { x: 750, y: 750 }
+    varrow: { x: 0, y: 0 },
+    anvils: { x: 400, y: 300 },
+    emberForge: { x: 420, y: 340 },
+    gildedGooseInn: { x: -100, y: 50 },
+    greenAlembic: { x: 200, y: -150 },
+    varrowPort: { x: 50, y: 200 },
+    tobinsOffice: { x: 380, y: 260 },
+    saltedBoar: { x: 440, y: 310 },
+    tinKettle: { x: 410, y: 280 },
+    upperEsterly: { x: -500, y: -500 },
+    moonspireTowers: { x: -480, y: -520 },
+    whistlingReed: { x: 700, y: 700 },
+    stonewoodMill: { x: 750, y: 750 }
   };
   const { zones, positions: laid } = layoutZones(places, positions, containment);
   const byId = new Map(zones.map((z) => [z.id, z]));
 
-  // shardn, cogs and upperMenthis all have children -> zones. Choir Furnace
+  // varrow, anvils and upperEsterly all have children -> zones. Ember Forge
   // has no children but isn't a City/Region -> not a zone.
   const zoneIds = zones.map((z) => z.id);
-  assert.deepEqual(new Set(zoneIds), new Set(['shardn', 'cogs', 'upperMenthis']));
+  assert.deepEqual(new Set(zoneIds), new Set(['varrow', 'anvils', 'upperEsterly']));
 
-  const shardnIdx = zoneIds.indexOf('shardn');
-  const cogsIdx = zoneIds.indexOf('cogs');
-  assert.ok(shardnIdx < cogsIdx, 'Shardn should be listed before the nested Cogs zone');
+  const varrowIdx = zoneIds.indexOf('varrow');
+  const anvilsIdx = zoneIds.indexOf('anvils');
+  assert.ok(varrowIdx < anvilsIdx, 'Varrow should be listed before the nested Anvils zone');
 
   for (const zone of zones) {
     for (const memberId of zone.memberIds) {
@@ -364,42 +364,42 @@ await test('stationFootprint: a line longer than the 28-char cap is measured at 
 
 // ---------- zoneRects with footprints/per-zone headers ----------
 
-await test('zoneRects: a member\'s text footprint, not just its point, is covered by the zone rect (Upper Menthis case)', () => {
+await test('zoneRects: a member\'s text footprint, not just its point, is covered by the zone rect (Upper Esterly case)', () => {
   const places = [
-    { _id: 'upperMenthis', name: 'Upper Menthis', type: 'City', connections: [] },
-    { _id: 'skySpireTowers', name: 'The SkySpire Towers', type: 'Landmark', connections: [] }
+    { _id: 'upperEsterly', name: 'Upper Esterly', type: 'City', connections: [] },
+    { _id: 'moonspireTowers', name: 'The Moonspire Towers', type: 'Landmark', connections: [] }
   ];
-  const containment = { childrenOf: { upperMenthis: ['skySpireTowers'] }, depthOf: { upperMenthis: 0 } };
-  const positions = { upperMenthis: { x: 0, y: 0 }, skySpireTowers: { x: 200, y: 100 } };
+  const containment = { childrenOf: { upperEsterly: ['moonspireTowers'] }, depthOf: { upperEsterly: 0 } };
+  const positions = { upperEsterly: { x: 0, y: 0 }, moonspireTowers: { x: 200, y: 100 } };
   // A 4-line list (2 notes + 2 NPCs), the kind that used to spill past the
   // minimum-size zone rect.
   const footprint = stationFootprint({
     noteLines: ['A fairly long note title'],
     npcLines: ['An NPC name here', 'Another one'],
     hasMore: true,
-    nameLength: 'The SkySpire Towers'.length
+    nameLength: 'The Moonspire Towers'.length
   });
   const pad = 36;
-  const zones = zoneRects(places, positions, containment, { pad, footprintOf: (id) => (id === 'skySpireTowers' ? footprint : null) });
+  const zones = zoneRects(places, positions, containment, { pad, footprintOf: (id) => (id === 'moonspireTowers' ? footprint : null) });
   const rect = zones[0].rect;
-  assert.ok(rect.x + rect.w >= positions.skySpireTowers.x + footprint.right + pad, 'rect should reach past the station\'s footprint on the right');
-  assert.ok(rect.y + rect.h >= positions.skySpireTowers.y + footprint.down + pad, 'rect should reach past the station\'s footprint on the bottom');
+  assert.ok(rect.x + rect.w >= positions.moonspireTowers.x + footprint.right + pad, 'rect should reach past the station\'s footprint on the right');
+  assert.ok(rect.y + rect.h >= positions.moonspireTowers.y + footprint.down + pad, 'rect should reach past the station\'s footprint on the bottom');
 });
 
-await test('zoneRects: opts.headerOf reserves a per-zone header above the places (Cogs case)', () => {
+await test('zoneRects: opts.headerOf reserves a per-zone header above the places (Anvils case)', () => {
   const places = [
-    { _id: 'cogs', name: 'Cogs', type: 'City', connections: [] },
-    { _id: 'redHammerPub', name: 'The Red Hammer Pub', type: 'Shop / Inn', connections: [] }
+    { _id: 'anvils', name: 'Anvils', type: 'City', connections: [] },
+    { _id: 'saltedBoar', name: 'The Salted Boar', type: 'Shop / Inn', connections: [] }
   ];
-  const containment = { childrenOf: { cogs: ['redHammerPub'] }, depthOf: { cogs: 0 } };
-  const positions = { cogs: { x: 0, y: 0 }, redHammerPub: { x: 400, y: 100 } };
+  const containment = { childrenOf: { anvils: ['saltedBoar'] }, depthOf: { anvils: 0 } };
+  const positions = { anvils: { x: 0, y: 0 }, saltedBoar: { x: 400, y: 100 } };
   const pad = 36;
   const header = 30 + 20 + 13 * 3 + 8; // label + badges + a 3-line list + margin = 97
   const zone = (h) =>
     layoutZones(places, positions, containment, {
       pad,
       footprintOf: () => ({ right: 0, down: 0 }),
-      headerOf: (id) => (id === 'cogs' ? h : null)
+      headerOf: (id) => (id === 'anvils' ? h : null)
     }).zones[0];
   const z = zone(header);
   assert.equal(z.contentBounds.y, 100 - 16 - pad - header, 'the dot sits 16px above the point');
@@ -819,20 +819,20 @@ await test('clampPointToLobes: a place dropped on an inner zone moves to the nea
   assert.ok(boxFitsLobes(stationBox(outside, fp), g.lobes, [inner], 16));
 });
 
-// Shardn containing three zones (alphabetical: Cogs, Menthis, Skyport), one
-// of which holds a zone of its own, plus Shardn's own places.
+// Varrow containing three zones (alphabetical: Anvils, Skyport, Upper Esterly), one
+// of which holds a zone of its own, plus Varrow's own places.
 function lobedWorld() {
   const places = [
-    { _id: 'shardn', name: 'Shardn', type: 'City', connections: [] },
-    { _id: 'menthis', name: 'Upper Menthis', type: 'Region', connections: [{ type: 'inside', text: 'Shardn' }] },
-    { _id: 'cogs', name: 'Cogs', type: 'Region', connections: [{ type: 'inside', text: 'Shardn' }] },
-    { _id: 'sky', name: 'Skyport', type: 'Region', connections: [{ type: 'inside', text: 'Shardn' }] },
+    { _id: 'varrow', name: 'Varrow', type: 'City', connections: [] },
+    { _id: 'esterly', name: 'Upper Esterly', type: 'Region', connections: [{ type: 'inside', text: 'Varrow' }] },
+    { _id: 'anvils', name: 'Anvils', type: 'Region', connections: [{ type: 'inside', text: 'Varrow' }] },
+    { _id: 'sky', name: 'Skyport', type: 'Region', connections: [{ type: 'inside', text: 'Varrow' }] },
     { _id: 'dock', name: 'Dock Ward', type: 'Region', connections: [{ type: 'inside', text: 'Skyport' }] },
-    { _id: 'furnace', name: 'Choir Furnace', type: 'Landmark', connections: [{ type: 'inside', text: 'Cogs' }] },
-    { _id: 'towers', name: 'SkySpire Towers', type: 'Landmark', connections: [{ type: 'inside', text: 'Upper Menthis' }] },
-    { _id: 'inn', name: 'Skybridge Inn', type: 'Shop / Inn', connections: [{ type: 'inside', text: 'Shardn' }] },
-    { _id: 'port', name: 'Shardn Port', type: 'Landmark', connections: [{ type: 'inside', text: 'Shardn' }] },
-    { _id: 'alley', name: 'Gutter Glint Alley', type: 'Landmark', connections: [{ type: 'inside', text: 'Shardn' }] }
+    { _id: 'furnace', name: 'Ember Forge', type: 'Landmark', connections: [{ type: 'inside', text: 'Anvils' }] },
+    { _id: 'towers', name: 'Moonspire Towers', type: 'Landmark', connections: [{ type: 'inside', text: 'Upper Esterly' }] },
+    { _id: 'inn', name: 'Gilded Goose Inn', type: 'Shop / Inn', connections: [{ type: 'inside', text: 'Varrow' }] },
+    { _id: 'port', name: 'Varrow Port', type: 'Landmark', connections: [{ type: 'inside', text: 'Varrow' }] },
+    { _id: 'alley', name: 'Copper Lane', type: 'Landmark', connections: [{ type: 'inside', text: 'Varrow' }] }
   ];
   const containment = buildContainment(places, buildEdges(places));
   return { places, containment };
@@ -841,20 +841,20 @@ function lobedWorld() {
 await test('layoutZones: inner zones are centred in lobes in alphabetical order, taking their contents with them', () => {
   const { places, containment } = lobedWorld();
   const positions = {
-    shardn: { x: 1000, y: 1000 }, menthis: { x: 0, y: 0 }, cogs: { x: 0, y: 0 }, sky: { x: 0, y: 0 },
+    varrow: { x: 1000, y: 1000 }, esterly: { x: 0, y: 0 }, anvils: { x: 0, y: 0 }, sky: { x: 0, y: 0 },
     dock: { x: 0, y: 0 }, furnace: { x: 5000, y: 5000 }, towers: { x: -3000, y: 40 },
     inn: { x: 0, y: 0 }, port: { x: 0, y: 0 }, alley: { x: 0, y: 0 }
   };
   const { zones, positions: laid } = layoutZones(places, positions, containment);
   const z = new Map(zones.map((x) => [x.id, x]));
-  const shardn = z.get('shardn');
-  assert.equal(shardn.lobed, true);
-  assert.equal(shardn.lobes.length, 3);
-  // Cogs -> bottom-left, Skyport -> bottom-right, Upper Menthis -> top-right.
+  const varrow = z.get('varrow');
+  assert.equal(varrow.lobed, true);
+  assert.equal(varrow.lobes.length, 3);
+  // Anvils -> bottom-left, Skyport -> bottom-right, Upper Esterly -> top-right.
   const centre = (r) => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
-  ['cogs', 'sky', 'menthis'].forEach((id, i) => {
+  ['anvils', 'sky', 'esterly'].forEach((id, i) => {
     const c = centre(z.get(id).rect);
-    const l = centre(shardn.lobes[i]);
+    const l = centre(varrow.lobes[i]);
     assert.ok(Math.abs(c.x - l.x) < 1e-6 && Math.abs(c.y - l.y) < 1e-6, `${id} centred in lobe ${i}`);
   });
   // Skyport has one inner zone, so it's lobed too, with Dock Ward centred inside.
@@ -863,12 +863,12 @@ await test('layoutZones: inner zones are centred in lobes in alphabetical order,
   const sc = centre(z.get('sky').rect);
   assert.ok(Math.abs(dc.x - sc.x) < 1e-6 && Math.abs(dc.y - sc.y) < 1e-6);
   // Contents moved with their zone.
-  assert.ok(pointInRect(laid.furnace, z.get('cogs').rect));
-  assert.ok(pointInRect(laid.towers, z.get('menthis').rect));
-  // Shardn's own places are in its band: inside the outline, off the inner zones and each other's zones.
+  assert.ok(pointInRect(laid.furnace, z.get('anvils').rect));
+  assert.ok(pointInRect(laid.towers, z.get('esterly').rect));
+  // Varrow's own places are in its band: inside the outline, off the inner zones and each other's zones.
   for (const id of ['inn', 'port', 'alley']) {
-    assert.ok(pointInLobes(shardn.lobes, laid[id]), `${id} inside Shardn`);
-    for (const inner of ['cogs', 'sky', 'menthis']) {
+    assert.ok(pointInLobes(varrow.lobes, laid[id]), `${id} inside Varrow`);
+    for (const inner of ['anvils', 'sky', 'esterly']) {
       assert.ok(!pointInRect(laid[id], z.get(inner).rect), `${id} not on ${inner}`);
     }
   }
@@ -877,13 +877,13 @@ await test('layoutZones: inner zones are centred in lobes in alphabetical order,
 await test('layoutZones: a saved size only stretches the lobes when it was saved for the same lobe count', () => {
   const { places, containment } = lobedWorld();
   const positions = Object.fromEntries(places.map((p) => [p._id, { x: 0, y: 0 }]));
-  const natural = layoutZones(places, positions, containment).zones.find((z) => z.id === 'shardn').rect;
+  const natural = layoutZones(places, positions, containment).zones.find((z) => z.id === 'varrow').rect;
   const withSize = (mapLobes) =>
-    places.map((p) => (p._id === 'shardn' ? { ...p, mapX: 0, mapY: 0, mapW: natural.w + 300, mapH: natural.h + 300, mapLobes } : p));
-  const matching = layoutZones(withSize(3), positions, containment).zones.find((z) => z.id === 'shardn').rect;
+    places.map((p) => (p._id === 'varrow' ? { ...p, mapX: 0, mapY: 0, mapW: natural.w + 300, mapH: natural.h + 300, mapLobes } : p));
+  const matching = layoutZones(withSize(3), positions, containment).zones.find((z) => z.id === 'varrow').rect;
   assert.equal(matching.w, natural.w + 300);
   for (const stale of [2, undefined]) {
-    const r = layoutZones(withSize(stale), positions, containment).zones.find((z) => z.id === 'shardn').rect;
+    const r = layoutZones(withSize(stale), positions, containment).zones.find((z) => z.id === 'varrow').rect;
     assert.equal(r.w, natural.w, `mapLobes ${stale} should be ignored`);
     assert.equal(r.x, 0, 'but the saved top-left still anchors it');
   }
@@ -891,16 +891,16 @@ await test('layoutZones: a saved size only stretches the lobes when it was saved
 
 await test('layoutZones: 4+ inner zones fall back to one content-sized octagon', () => {
   const { places, containment: _ } = lobedWorld();
-  const extra = { _id: 'fourth', name: 'Fourth Ward', type: 'Region', connections: [{ type: 'inside', text: 'Shardn' }] };
+  const extra = { _id: 'fourth', name: 'Fourth Ward', type: 'Region', connections: [{ type: 'inside', text: 'Varrow' }] };
   const all = [...places, extra];
   const containment = buildContainment(all, buildEdges(all));
   const positions = Object.fromEntries(all.map((p, i) => [p._id, { x: i * 300, y: i * 200 }]));
   const { zones, positions: laid } = layoutZones(all, positions, containment);
-  const shardn = zones.find((x) => x.id === 'shardn');
-  assert.equal(shardn.lobed, false);
-  assert.equal(shardn.lobes.length, 1);
-  // Its inner zones aren't moved by Shardn (Skyport still centres Dock Ward, though).
-  assert.deepEqual(laid.cogs, positions.cogs);
+  const varrow = zones.find((x) => x.id === 'varrow');
+  assert.equal(varrow.lobed, false);
+  assert.equal(varrow.lobes.length, 1);
+  // Its inner zones aren't moved by Varrow (Skyport still centres Dock Ward, though).
+  assert.deepEqual(laid.anvils, positions.anvils);
 });
 
 await test('packLayout + layoutZones: an arranged lobed map is stable and its places don\'t overlap', () => {
@@ -921,21 +921,21 @@ await test('packLayout + layoutZones: an arranged lobed map is stable and its pl
       `${id} moved from ${JSON.stringify(positions[id])} to ${JSON.stringify(laid[id])}`
     );
   }
-  const shardn = zones.find((x) => x.id === 'shardn');
-  assert.equal(shardn.rect.w, sizes.shardn.w);
+  const varrow = zones.find((x) => x.id === 'varrow');
+  assert.equal(varrow.rect.w, sizes.varrow.w);
   const boxes = ['inn', 'port', 'alley'].map((id) => stationBox(laid[id], fp));
   for (let i = 0; i < boxes.length; i++) {
     for (let j = i + 1; j < boxes.length; j++) {
       const a = boxes[i], b = boxes[j];
       const overlap = a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-      assert.ok(!overlap, 'Shardn\'s places should not overlap each other');
+      assert.ok(!overlap, 'Varrow\'s places should not overlap each other');
     }
   }
 });
 
 await test('packLayout: a lobed zone with more places than its band holds grows until they all fit', () => {
   const extra = Array.from({ length: 14 }, (_, i) => ({
-    _id: `p${i}`, name: `Place ${i}`, type: 'Landmark', connections: [{ type: 'inside', text: 'Shardn' }]
+    _id: `p${i}`, name: `Place ${i}`, type: 'Landmark', connections: [{ type: 'inside', text: 'Varrow' }]
   }));
   const { places } = lobedWorld();
   const all = [...places, ...extra];
@@ -951,12 +951,12 @@ await test('packLayout: a lobed zone with more places than its band holds grows 
     sizes[p._id] ? { ...p, mapW: Math.round(sizes[p._id].w), mapH: Math.round(sizes[p._id].h), mapLobes: sizes[p._id].lobes } : p
   );
   const { zones, positions: laid } = layoutZones(saved, positions, containment, opts);
-  const shardn = zones.find((z) => z.id === 'shardn');
-  assert.ok(shardn.rect.w > natural.w, 'it grew');
+  const varrow = zones.find((z) => z.id === 'varrow');
+  assert.ok(varrow.rect.w > natural.w, 'it grew');
   const ids = ['inn', 'port', 'alley', ...extra.map((p) => p._id)];
   const boxes = ids.map((id) => stationBox(laid[id], fp));
   ids.forEach((id, i) => {
-    assert.ok(boxFitsLobes(boxes[i], shardn.lobes, shardn.stationObstacles, 16), `${id} is in the band`);
+    assert.ok(boxFitsLobes(boxes[i], varrow.lobes, varrow.stationObstacles, 16), `${id} is in the band`);
     assert.deepEqual(laid[id], positions[id], `${id} wasn't moved when drawn`);
     for (let j = i + 1; j < boxes.length; j++) {
       const a = boxes[i], b = boxes[j];

@@ -1,14 +1,18 @@
 {
   "name": "ttrpgmap",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "setup:ai": "node scripts/setup-ai.mjs",
+    "build:standard": "node scripts/build.mjs standard",
+    "build:ai": "node scripts/build.mjs ai",
+    "test": "node tests/store.test.mjs && node tests/characters.test.mjs && node tests/mapZones.test.mjs && node tests/recap.test.mjs && node tests/transfer.test.mjs && node tests/noteText.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

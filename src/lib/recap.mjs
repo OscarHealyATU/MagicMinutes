@@ -183,3 +183,40 @@ export function buildPrompt(material) {
 
   return lines.join('\n');
 }
+
+// The small model copies the style of the notes it's given, so notes typed in
+// lowercase come back as a summary in lowercase (telling it not to only makes
+// it worse). This puts the capitals back afterwards: the start of each
+// sentence, "I", and the names of the session's places and people.
+const MINOR_WORDS = new Set(['a', 'an', 'and', 'at', 'for', 'in', 'of', 'on', 'or', 'the', 'to']);
+
+function titleCase(name) {
+  return name
+    .split(/(\s+)/)
+    .map((word, i) =>
+      /^\s+$/.test(word) || (i > 0 && MINOR_WORDS.has(word.toLowerCase()))
+        ? word
+        : word.charAt(0).toUpperCase() + word.slice(1)
+    )
+    .join('');
+}
+
+const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+export function tidyCapitals(text, material = {}) {
+  let out = String(text || '');
+  const names = [...(material.places || []), ...(material.npcs || [])]
+    .map((d) => (d && d.name ? d.name.trim() : ''))
+    .filter((n) => n.length >= 3)
+    // Longest first, so "High Esterly Market" is fixed before "High Esterly".
+    .sort((a, b) => b.length - a.length);
+  for (const name of names) {
+    // A name already written with capitals keeps them; an all-lowercase one
+    // gets title case.
+    const proper = name === name.toLowerCase() ? titleCase(name) : name;
+    out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(name)}(?![\\p{L}\\p{N}])`, 'giu'), proper);
+  }
+  out = out.replace(/(^|[.!?]["')\]]?\s+|\n\s*)([\p{Ll}])/gu, (m, lead, ch) => lead + ch.toUpperCase());
+  out = out.replace(/(?<![\p{L}\p{N}'])i(?=['\s,.!?]|$)/gu, 'I');
+  return out;
+}

@@ -1,11 +1,11 @@
 // Plain-node test for src/lib/recap.mjs (session-material collection and
-// summary drafting) and pickModel from src/lib/ollama.mjs. No network calls —
-// detectOllama/generate are exercised manually, not here. Run with:
+// summary drafting) and the AI preference helpers in src/lib/ai.mjs. The model
+// itself runs in Rust and is exercised in the app, not here. Run with:
 // node tests/recap.test.mjs
 
 import assert from 'node:assert/strict';
-import { buildPrompt, collectSessionMaterial, draftSummary } from '../src/lib/recap.mjs';
-import { pickModel } from '../src/lib/ollama.mjs';
+import { buildPrompt, collectSessionMaterial, draftSummary, tidyCapitals } from '../src/lib/recap.mjs';
+import { MAX_PROMPT_CHARS, fitPrompt, readAiEnabled, writeAiEnabled } from '../src/lib/ai.mjs';
 
 let passed = 0;
 let failed = 0;
@@ -170,30 +170,42 @@ await test('buildPrompt: says "none recorded" for empty sections rather than omi
   assert.match(prompt, /Notes from the session:\n- none recorded/);
 });
 
-// ---------- pickModel ----------
-
-await test('pickModel: prefers models in the documented order', () => {
-  const models = [
-    { name: 'llama3.2:3b', sizeBytes: 2_000_000_000 },
-    { name: 'qwen2.5:1.5b', sizeBytes: 900_000_000 },
-    { name: 'gemma3:1b', sizeBytes: 800_000_000 }
-  ];
-  assert.equal(pickModel(models), 'gemma3:1b');
-  assert.equal(pickModel(models.filter((m) => m.name !== 'gemma3:1b')), 'qwen2.5:1.5b');
+await test('tidyCapitals: sentence starts, "I", and session names get their capitals back', () => {
+  const material = {
+    places: [{ name: 'gilded goose inn' }, { name: 'High Esterly' }],
+    npcs: [{ name: 'captain aldric venn' }, { name: 'tobin' }, { name: 'the lady of the lake' }]
+  };
+  const text = 'you visited the gilded goose inn. then you went to high esterly! you met captain aldric venn and tobin.\n\ni think the lady of the lake knew. it\'s a gilded goose innkeeper, not tobinsworth.';
+  assert.equal(
+    tidyCapitals(text, material),
+    'You visited the Gilded Goose Inn. Then you went to High Esterly! You met Captain Aldric Venn and Tobin.\n\nI think The Lady of the Lake knew. It\'s a gilded goose innkeeper, not tobinsworth.'
+  );
+  assert.equal(tidyCapitals('Already Fine. Nothing to do.', material), 'Already Fine. Nothing to do.');
+  assert.equal(tidyCapitals('', material), '');
 });
 
-await test('pickModel: falls back to the smallest installed model by size', () => {
-  const models = [
-    { name: 'mystery-model:70b', sizeBytes: 40_000_000_000 },
-    { name: 'another-one:8b', sizeBytes: 5_000_000_000 },
-    { name: 'tiny-one:2b', sizeBytes: 1_500_000_000 }
-  ];
-  assert.equal(pickModel(models), 'tiny-one:2b');
+// ---------- AI preference and prompt size ----------
+
+await test('AI summaries default to on, remember off, and survive a broken storage', () => {
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  assert.equal(readAiEnabled(storage), true);
+  assert.equal(writeAiEnabled(false, storage), true);
+  assert.equal(readAiEnabled(storage), false);
+  writeAiEnabled(true, storage);
+  assert.equal(readAiEnabled(storage), true);
+  const broken = { getItem: () => { throw new Error('nope'); }, setItem: () => { throw new Error('nope'); } };
+  assert.equal(readAiEnabled(broken), true);
+  assert.equal(writeAiEnabled(false, broken), false);
+  assert.equal(readAiEnabled(undefined), true);
 });
 
-await test('pickModel: an empty or missing model list returns null', () => {
-  assert.equal(pickModel([]), null);
-  assert.equal(pickModel(undefined), null);
+await test('fitPrompt leaves short prompts alone and trims long ones with a note', () => {
+  assert.equal(fitPrompt('short'), 'short');
+  const long = 'x'.repeat(MAX_PROMPT_CHARS + 500);
+  const fitted = fitPrompt(long);
+  assert.ok(fitted.length < long.length);
+  assert.ok(fitted.endsWith('too long.)'));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { COLLECTIONS } from '../lib/store.mjs';
 import { confirmDialog, openTextFile, saveTextFile } from '../fileio.js';
 import { THEMES } from '../lib/theme.mjs';
+import { aiStatus, readAiEnabled, writeAiEnabled } from '../lib/ai.mjs';
 import {
   buildExport,
   countDocs,
@@ -38,6 +39,8 @@ export default function SettingsView({ theme, onThemeChange }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState('merge');
+  const [ai, setAi] = useState(null);
+  const [aiOn, setAiOn] = useState(() => readAiEnabled(globalThis.localStorage));
 
   function refreshCounts() {
     readAll()
@@ -50,6 +53,14 @@ export default function SettingsView({ theme, onThemeChange }) {
   }
 
   useEffect(refreshCounts, []);
+  useEffect(() => {
+    aiStatus().then(setAi);
+  }, []);
+
+  function toggleAi(on) {
+    setAiOn(on);
+    writeAiEnabled(on, globalThis.localStorage);
+  }
 
   function say(message) {
     setError('');
@@ -153,6 +164,38 @@ export default function SettingsView({ theme, onThemeChange }) {
               </button>
             ))}
           </div>
+        </section>
+
+        <section className="settings-card">
+          <h3>AI summaries</h3>
+          {ai === null ? (
+            <p className="settings-help">Checking…</p>
+          ) : ai.available ? (
+            <>
+              <label className="settings-toggle">
+                <input type="checkbox" checked={aiOn} onChange={(e) => toggleAi(e.target.checked)} />
+                <span>
+                  <strong>Summarise sessions with AI</strong>
+                  <span className="settings-help">
+                    {' '}
+                    “Write a summary” on the Recap page uses {ai.model}, which runs entirely on this
+                    computer: nothing is sent anywhere, and it works offline. It can occasionally
+                    muddle a detail, so give the summary a read. Switched off, you get a plain
+                    summary built from your notes.
+                  </span>
+                </span>
+              </label>
+            </>
+          ) : ai.installed ? (
+            <div className="settings-error">⚠ AI summaries can’t run: {ai.reason}</div>
+          ) : (
+            <p className="settings-help">
+              This is the standard edition, so “Write a summary” builds a plain summary from your
+              notes. For AI-written summaries, install the <strong>MagicMinutes AI</strong> edition
+              from the releases page. It's the same app with a small AI model built in, and it
+              keeps all your notes.
+            </p>
+          )}
         </section>
 
         <section className="settings-card">

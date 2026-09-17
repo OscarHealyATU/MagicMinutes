@@ -45,3 +45,7 @@ key.properties
 
 # Local tool settings
 .claude/settings.local.json
+src-tauri/ai/
+
+# Installers collected by npm run build:standard / build:ai
+release-installers/

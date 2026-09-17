@@ -1,8 +1,8 @@
 // Pure logic behind the Map page's "tube lines" and the containment zones
 // drawn under them: how connection blocks turn into edges between places,
 // how `inside` / `contains` edges turn into a parent/child tree, and how that
-// tree turns into nested octagon "zone" outlines (Shardn contains
-// Cogs, tube-map style) that stops are confined inside of.
+// tree turns into nested octagon "zone" outlines (Varrow contains
+// Anvils, tube-map style) that stops are confined inside of.
 //
 // No React and no database in here, so tests/mapZones.test.mjs can exercise
 // all of it with plain objects.

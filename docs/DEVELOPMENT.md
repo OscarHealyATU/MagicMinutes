@@ -41,19 +41,61 @@ for f in tests/*.test.mjs; do node "$f"; done
 | `characters.test.mjs` | Alignment bands, relations, the family-tree layout and group boxes |
 | `mapZones.test.mjs` | Map zones: containment, nesting, packing, clamping and resize limits |
 | `transfer.test.mjs` | Export/import validation, merge/replace planning, theme preference |
-| `recap.test.mjs` | Session summary material and the no-AI summary |
+| `recap.test.mjs` | Session summary material, the no-AI summary, the AI on/off preference |
+| `noteText.test.mjs` | The readable note format used for emailing and importing notes |
+
+`npm test` runs them all. The Rust side has its own tests, including one that runs the real
+AI engine if its files are in place:
+
+```bash
+cd src-tauri && cargo test --lib -- --include-ignored
+```
 
 ## Building an installer
 
+There are two editions: **standard**, and **AI**, which adds a built-in model for session
+summaries. They're the same app with the same identifier and data. The only difference is
+whether the `ai/` folder is bundled, and the app checks for it at runtime
+(`src-tauri/src/ai.rs`).
+
 ```bash
-npm run tauri build
+npm run build:standard   # MagicMinutes_<version>_x64-setup.exe, a few MB
+npm run build:ai         # MagicMinutes-AI_<version>_x64-setup.exe, about 530 MB
 ```
 
-This writes to `src-tauri/target/release/bundle/`:
+Tauri writes both to the same `src-tauri/target/release/bundle/` folder, so each build
+script then copies its own installers into `release-installers/` under the edition's
+name. Build them in either order. The `nsis` `.exe` is the per-user installer attached to
+GitHub releases; the `.msi` is the same app as an MSI.
 
-- `nsis/MagicMinutes_<version>_x64-setup.exe` — per-user installer, no admin prompt.
-  This is the one attached to GitHub releases.
-- `msi/MagicMinutes_<version>_x64_en-US.msi` — the same app as an MSI.
+Either edition installs over the other. An installer hook (`src-tauri/windows/hooks.nsh`)
+clears the install folder's `ai/` before copying files, so switching to standard removes
+the AI files, and updating the AI edition never leaves an old model behind. Notes live in
+`%APPDATA%` and are never touched.
+
+### The AI files
+
+`npm run setup:ai` (run automatically by `build:ai`) fills `src-tauri/ai/`, which git
+ignores because the model alone is about 500 MB:
+
+| Path | What it is |
+|---|---|
+| `ai/llama/` | llama.cpp's prebuilt Windows CPU engine (`llama-completion.exe` and its DLLs), downloaded from the pinned llama.cpp release and checked against its SHA-256 |
+| `ai/models/qwen3-0.6b-q4_k_m.gguf` | The model. Copied from Ollama's store, so run `ollama pull qwen3:0.6b` once first |
+| `ai/model.json` | Which model file to load, its chat format, and sampling settings |
+| `ai/LICENSES/` | Licence texts for the model, llama.cpp and OpenMP, shipped with the app |
+
+`tauri dev` finds the files straight from `src-tauri/ai/`, so AI summaries work in
+development once setup has run.
+
+**Swapping the model:** put another GGUF in `ai/models/`, point `model.json`'s `file` at it,
+and change `promptTemplate` to that model's chat format (`{prompt}` marks where the text
+goes). To make the change stick for fresh checkouts, update `MODEL` and `MODEL_CONFIG` in
+`scripts/setup-ai.mjs`. Bigger models are slower, and each one adds its size to the AI
+installer.
+
+The engine runs once per summary as a hidden background process, reading its prompt from a
+temp file. Nothing keeps running afterwards.
 
 The installer is unsigned, so Windows SmartScreen warns on first run.
 
@@ -72,10 +114,13 @@ src/
     mapZones.mjs        zone geometry for the map
     transfer.mjs        export/import format and merge/replace planning
     recap.mjs           session summary material
-    ollama.mjs          optional local AI summaries via Ollama
+    ai.mjs              AI summaries: bridge to the built-in model, on/off preference
+    noteText.mjs        readable note format for emailing and importing notes
     dice.mjs            roll-notation parser for combos
     theme.mjs           light/dark preference
-src-tauri/              Rust entry point, plugins, capabilities, icons, Android project
+src-tauri/              Rust entry point (src/ai.rs runs the AI engine), plugins, capabilities, icons, Android project
+  tauri.ai.conf.json    extra config for the AI edition: bundles the ai/ folder
+scripts/                setup-ai.mjs (fetch AI files), name-installers.mjs
 tests/                  plain Node test scripts
 ```
 
@@ -126,8 +171,8 @@ A release APK has to be signed before it will install. Create your own keystore 
 commit the keystore or its passwords** — `.gitignore` excludes `src-tauri/keystore/` for
 this reason. Updates to an installed app must be signed with the same key.
 
-The "Write a summary" AI feature needs a local Ollama server, so on Android it always falls
-back to the plain summary.
+The AI edition is Windows-only for now. Android builds have no `ai/` folder, so "Write a
+summary" always writes the plain summary there.
 
 ## Regenerating the icon
 

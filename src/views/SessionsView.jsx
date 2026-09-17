@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { api } from '../api.js';
-import { buildPrompt, collectSessionMaterial, draftSummary } from '../lib/recap.mjs';
-import { RECOMMENDED_MODEL, detectOllama, generate, pickModel } from '../lib/ollama.mjs';
+import { buildPrompt, collectSessionMaterial, draftSummary, tidyCapitals } from '../lib/recap.mjs';
+import { aiGenerate, aiStatus, noAiMessage, readAiEnabled } from '../lib/ai.mjs';
 
 const KIND_LABELS = {
   note: '📜 Notes',
@@ -61,11 +61,12 @@ export default function SessionsView({ reloadToken, focusId, activeSession, onEn
   }
 
   // Builds a summary from the session's recap material and saves it into the
-  // same "Your summary" field the player edits by hand. Prefers a local
-  // Ollama model when one is running; otherwise falls back to a deterministic,
-  // no-AI draft so this always works (including on Android, which has no LLM).
+  // same "Your summary" field the player edits by hand. Uses the built-in
+  // model in the AI edition when AI summaries are switched on; otherwise a
+  // deterministic, no-AI draft, so this always works (including on Android).
   async function summarize() {
-    if (!selected || aiBusyId === selected._id) return;
+    // One summary at a time, across all sessions: the AI uses the whole CPU.
+    if (!selected || aiBusyId) return;
     const sessionId = selected._id;
     const summaryAtStart = selected.summary || '';
     if (summaryAtStart.trim()) {
@@ -87,29 +88,25 @@ export default function SessionsView({ reloadToken, focusId, activeSession, onEn
         api.list('npcs')
       ]);
       const material = collectSessionMaterial(selected, { notes, places, npcs });
-      const { available, models } = await detectOllama({ timeoutMs: 1500 });
-      const model = available ? pickModel(models) : null;
+      const enabled = readAiEnabled(globalThis.localStorage);
+      const ai = enabled ? await aiStatus() : null;
 
       let summary = '';
       let resultStatus;
-      if (model) {
-        setStatusFor(`Asking ${model}…`);
+      if (ai && ai.available) {
+        setStatusFor(`Writing with ${ai.model}…`);
         try {
-          summary = await generate({ model, prompt: buildPrompt(material), timeoutMs: 60000 });
+          summary = tidyCapitals(await aiGenerate(buildPrompt(material)), material);
         } catch (genErr) {
           summary = '';
-          resultStatus = `Ollama failed (${genErr.message}) — wrote a plain summary instead.`;
+          resultStatus = noAiMessage({ enabled, status: ai, error: genErr.message });
         }
       }
       if (summary) {
         resultStatus = 'Written by AI ✓';
       } else {
         summary = draftSummary(material);
-        if (!resultStatus) {
-          resultStatus = available
-            ? `Written without AI (no small model installed — run \`ollama pull ${RECOMMENDED_MODEL}\`).`
-            : 'Written without AI. For a better summary install Ollama and run `ollama pull gemma3:1b`, then start Ollama and try again.';
-        }
+        if (!resultStatus) resultStatus = noAiMessage({ enabled, status: ai });
       }
 
       if (!mountedRef.current) return;
@@ -266,7 +263,12 @@ export default function SessionsView({ reloadToken, focusId, activeSession, onEn
 
             <div className="section-label">Your summary</div>
             <div className="ai-summary-bar">
-              <button className="btn" disabled={aiBusyId === selected._id} onClick={summarize}>
+              <button
+                className="btn"
+                disabled={!!aiBusyId}
+                title={aiBusyId && aiBusyId !== selected._id ? 'Another session’s summary is still being written' : undefined}
+                onClick={summarize}
+              >
                 {aiBusyId === selected._id ? '✨ Working…' : '✨ Write a summary'}
               </button>
               {aiStatusById[selected._id] && (

@@ -993,8 +993,8 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
             if (!r0 || [r0.x, r0.y, r0.w, r0.h].some((n) => !Number.isFinite(n))) return null;
             if (zone.lobes.some((l) => ![l.x, l.y, l.w, l.h, l.cut].every(Number.isFinite))) return null;
             // Deeper (more nested) zones get a stronger tint so a small inner
-            // zone (Cogs) reads as a distinct patch inside the paler outer
-            // band (Shardn) — color-mix keeps both themed via --accent-strong.
+            // zone (Anvils) reads as a distinct patch inside the paler outer
+            // band (Varrow) — color-mix keeps both themed via --accent-strong.
             const tintPct = 7 + Math.min(zone.depth, 3) * 10;
             const tint = `color-mix(in srgb, var(--accent-strong) ${tintPct}%, transparent)`;
             const strokeTint = `color-mix(in srgb, var(--accent-strong) ${Math.min(tintPct + 25, 70)}%, transparent)`;
