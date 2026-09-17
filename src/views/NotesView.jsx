@@ -1,19 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { api } from '../api.js';
+import NoteImport from '../components/NoteImport.jsx';
+import NoteShare from '../components/NoteShare.jsx';
 import PlaceReconcile from '../components/PlaceReconcile.jsx';
+import { NOTE_CATEGORIES } from '../lib/noteText.mjs';
 import { isKnown, similarNames } from '../lib/similar.js';
 
-export const NOTE_CATEGORIES = [
-  'Session Log',
-  'Roleplay',
-  'Character',
-  'Quest',
-  'Location',
-  'Item',
-  'Lore',
-  'Misc'
-];
+// Lives with the note text format, which has to agree on the list.
+export { NOTE_CATEGORIES };
 
 function fmtDate(iso) {
   if (!iso) return '';
@@ -32,6 +27,8 @@ export default function NotesView({ focusId }) {
   const [status, setStatus] = useState('');
   const [places, setPlaces] = useState([]);
   const [reconcile, setReconcile] = useState(null);
+  const [sharing, setSharing] = useState(false);
+  const [importing, setImporting] = useState(false);
   // Places the user chose to "skip for now" — don't nag again this session
   const dismissed = useRef(new Set());
 
@@ -121,6 +118,14 @@ export default function NotesView({ focusId }) {
         <div className="list-header">
           <h2>Notes</h2>
           <button className="btn primary" onClick={createNote}>+ New</button>
+        </div>
+        <div className="list-header-actions">
+          <button className="btn" title="Email or copy notes to someone" disabled={!notes.length} onClick={() => setSharing(true)}>
+            ✉ Share
+          </button>
+          <button className="btn" title="Bring in notes from an email or a file" onClick={() => setImporting(true)}>
+            ⬇ Import
+          </button>
         </div>
         <input
           className="search-input"
@@ -237,6 +242,20 @@ export default function NotesView({ focusId }) {
         )}
       </section>
 
+      {sharing && <NoteShare notes={notes} startWith={selectedId} onClose={() => setSharing(false)} />}
+      {importing && (
+        <NoteImport
+          existing={notes}
+          onClose={() => setImporting(false)}
+          onImported={(added, message) => {
+            setNotes((prev) => [...added, ...prev.filter((n) => !added.some((a) => a._id === n._id))]);
+            setImporting(false);
+            if (added.length) setSelectedId(added[0]._id);
+            setStatus(message);
+            setTimeout(() => setStatus(''), 4000);
+          }}
+        />
+      )}
       {reconcile && (
         <PlaceReconcile
           items={reconcile.items}

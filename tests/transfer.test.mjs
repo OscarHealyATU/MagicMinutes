@@ -8,6 +8,10 @@ import {
   EXPORT_FORMAT,
   EXPORT_VERSION,
   buildExport,
+  buildNotesExport,
+  NOTES_FORMAT,
+  notesExportFilename,
+  parseNotesFile,
   countDocs,
   describePlan,
   exportFilename,
@@ -179,6 +183,39 @@ await test('applyTheme: writes the attribute the stylesheet keys off', () => {
   assert.equal(attrs['data-theme'], 'light');
   assert.equal(applyTheme('nonsense', root), DEFAULT_THEME);
   assert.equal(attrs['data-theme'], DEFAULT_THEME);
+});
+
+await test('shared notes file: its own format, refused as a campaign backup, read by parseNotesFile', () => {
+  const notes = [
+    { _id: 'a', title: 'One', category: 'Quest', place: '', tags: ['x'], content: 'Hi', pinned: false, createdAt: '2026-09-16T00:00:00.000Z' }
+  ];
+  const file = buildNotesExport(notes, { now: () => '2026-09-16T00:00:00.000Z' });
+  assert.equal(file.format, NOTES_FORMAT);
+  assert.notEqual(file.format, EXPORT_FORMAT, 'older builds must not take it for a backup');
+  assert.throws(() => parseExport(JSON.stringify(file)), /Notes page/);
+  assert.equal(notesExportFilename(new Date('2026-09-16T10:00:00Z')), 'magicminutes-notes-2026-09-16.json');
+  const back = parseNotesFile(JSON.stringify(file));
+  assert.deepEqual(back.notes, notes);
+  assert.deepEqual(back.warnings, []);
+});
+
+await test('parseNotesFile: takes just the notes from a full backup, and cleans odd or repeated entries', () => {
+  const backup = buildExport({
+    notes: [
+      { _id: 'a', title: 'Good', tags: ['t'], content: 'c', category: 'lore', pinned: true },
+      { _id: 'a', title: 'Same id again' },
+      { _id: 'b', tags: 'one, two', title: 42, pinned: 'yes', category: 'Nonsense', extra: { evil: 1 } },
+      null
+    ],
+    places: [{ _id: 'p' }]
+  });
+  const { notes, warnings } = parseNotesFile(JSON.stringify(backup));
+  assert.equal(notes.length, 2);
+  assert.deepEqual(notes[0], { _id: 'a', title: 'Good', category: 'Lore', place: '', tags: ['t'], content: 'c', pinned: true });
+  assert.deepEqual(notes[1], { _id: 'b', title: '42', category: 'Misc', place: '', tags: ['one', 'two'], content: '', pinned: false });
+  assert.equal(warnings.length, 2, 'left-out entries, and the places it did not import');
+  assert.throws(() => parseNotesFile('not json'), /valid JSON/);
+  assert.throws(() => parseNotesFile('{"format":"something-else","version":1}'), /not a MagicMinutes/);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

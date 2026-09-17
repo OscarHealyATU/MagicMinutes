@@ -5,6 +5,7 @@
 // picking and database writes live in src/fileio.js and the Settings view, so
 // everything here is testable with plain objects.
 
+import { cleanNote } from './noteText.mjs';
 import { COLLECTIONS } from './store.mjs';
 
 export const EXPORT_FORMAT = 'ttrpgmap-export';
@@ -27,6 +28,66 @@ export function buildExport(collections, { now = () => new Date().toISOString() 
   };
 }
 
+// A few notes to send someone. It gets its own format name, not the backup's,
+// so no version of the app will take it as a whole campaign: a Replace import
+// of a notes-only file would delete everything else.
+export const NOTES_FORMAT = 'magicminutes-notes';
+
+export function notesExportFilename(now = new Date()) {
+  return `magicminutes-notes-${now.toISOString().slice(0, 10)}.json`;
+}
+
+export function buildNotesExport(notes, { now = () => new Date().toISOString() } = {}) {
+  return {
+    format: NOTES_FORMAT,
+    version: EXPORT_VERSION,
+    exportedAt: now(),
+    collections: { notes }
+  };
+}
+
+// Notes from a file for the Notes page's Import: a shared-notes file, or the
+// notes out of a full backup. Each note is cleaned to the fields a note has,
+// and an id that appears twice is only kept once.
+export function parseNotesFile(text) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error("That file isn't valid JSON, so it isn't a MagicMinutes notes file.");
+  }
+  if (!data || typeof data !== 'object' || (data.format !== NOTES_FORMAT && data.format !== EXPORT_FORMAT)) {
+    throw new Error('That file is not a MagicMinutes notes file or backup.');
+  }
+  if (typeof data.version !== 'number' || data.version > EXPORT_VERSION) {
+    throw new Error(`That file was written by a newer version of the app (v${data.version}).`);
+  }
+  const collections = data.collections && typeof data.collections === 'object' ? data.collections : {};
+  const raw = Array.isArray(collections.notes) ? collections.notes : [];
+  const warnings = [];
+  const seen = new Set();
+  const notes = [];
+  for (const doc of raw) {
+    if (!doc || typeof doc !== 'object') continue;
+    const note = cleanNote(doc);
+    if (note._id && seen.has(note._id)) continue;
+    if (note._id) seen.add(note._id);
+    notes.push(note);
+  }
+  if (raw.length !== notes.length) {
+    warnings.push(`${raw.length - notes.length} entries in that file were broken or repeated and were left out.`);
+  }
+  const others = Object.entries(collections).filter(
+    ([name, docs]) => name !== 'notes' && Array.isArray(docs) && docs.length
+  );
+  if (others.length) {
+    warnings.push(
+      `This file also holds ${others.map(([name, docs]) => `${docs.length} ${name}`).join(', ')}. Only its notes are imported here; use Settings → Import for the rest.`
+    );
+  }
+  return { notes, warnings };
+}
+
 export function countDocs(collections) {
   return Object.values(collections).reduce((sum, docs) => sum + (docs ? docs.length : 0), 0);
 }
@@ -42,6 +103,9 @@ export function parseExport(text) {
   }
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     throw new Error('That file does not contain a MagicMinutes export.');
+  }
+  if (data.format === NOTES_FORMAT) {
+    throw new Error('That file holds some shared notes, not a whole campaign. Import it on the Notes page instead.');
   }
   if (data.format !== EXPORT_FORMAT) {
     throw new Error(

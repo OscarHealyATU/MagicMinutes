@@ -161,7 +161,8 @@ export default function SettingsView({ theme, onThemeChange }) {
             Everything lives in one SQLite file on this machine — nothing is synced anywhere.
             Export writes a single JSON file holding your whole campaign: notes, places, NPCs,
             groups, party, combos, rolls and session history. Keep one somewhere safe, and use
-            it to move to another machine or your phone.
+            it to move to another machine or your phone. To send just a few notes to someone, use
+            Share on the Notes page instead.
           </p>
 
           {counts && (

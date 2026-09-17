@@ -167,6 +167,37 @@ Your session log, clues, quests and anything else you want to remember.
   suggests (the note is corrected for you), or skip it for now.
 - The search box looks through titles, note text and tags.
 
+### Emailing notes to someone
+
+- **✉ Share** lets you tick one or more notes, then:
+  - **✉ Email** opens your email app with the notes written out as ordinary text, so anyone
+    can read them, even without MagicMinutes. If there are too many to fit, they're copied
+    instead and you paste them into the email with **Ctrl+V**.
+  - **Copy text** copies the same text, for a message or a chat.
+  - **Save as file…** saves a small `.json` file to attach instead.
+- **⬇ Import** brings notes back in. Paste the whole email (replies with `>` marks work
+  too), or open the attached file. It shows what it found before adding anything, and
+  skips notes you already have.
+
+You can also write notes for import by hand, in an email, a text file or anywhere else.
+Start each note with `=== Note ===` and end it with `=== End note ===`:
+
+```
+=== Note ===
+Title: Deal with the ferryman
+Category: Quest
+Place: Whispering Falls
+Tags: ferryman, favour
+Pinned: yes
+
+He'll take us across for free if we find his lost lantern.
+=== End note ===
+```
+
+Only the title line is needed; the other fields are optional. Capitals and spacing don't
+matter, and anything outside the note lines is ignored. **Import** has the same guide, with
+an example you can copy.
+
 ---
 
 ## Characters 🎭
@@ -329,7 +360,8 @@ still point at the right people and places.
 | **Move to a new computer** | Export on the old one. Install MagicMinutes on the new one, then import with **Replace**. |
 | **Undo a big mistake** | Import your last backup with **Replace**. |
 | **Combine two copies** (say a laptop and a desktop) | Import one into the other with **Merge**. Where the same entry exists in both, the file's version wins. |
-| **Share your campaign notes with a friend** | Send them your export. They import it with **Merge**, which leaves their own notes alone. |
+| **Send a few notes to a friend** | Use **✉ Share** on the Notes page (see [Emailing notes](#emailing-notes-to-someone)). |
+| **Share your whole campaign with a friend** | Send them your export. They import it with **Merge**, which leaves their own notes alone. |
 
 ### Bringing in notes from somewhere else
 
