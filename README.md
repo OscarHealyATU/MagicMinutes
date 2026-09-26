@@ -311,14 +311,19 @@ session a title and write **your summary**: big moments, cliffhangers, plans for
 **✨ Write a summary** drafts one for you from what happened that session:
 
 - In the **MagicMinutes AI** edition, a small AI model built into the app writes it, **on
-  your own computer**. Nothing is sent over the internet, and it takes a few seconds. It
-  can occasionally muddle a detail, so give it a read. You can switch AI summaries off in
-  **Settings**.
+  your own computer**. Nothing is sent over the internet. You see it being written word by
+  word, after a short pause while it reads your notes. It can occasionally muddle a
+  detail, so give it a read. You can switch AI summaries off in **Settings**.
+- If your computer has a graphics card, the AI uses it, which takes a summary from up to
+  half a minute down to a few seconds. The very first summary is slower while the card
+  gets ready. **Settings → AI summaries** shows which card it found, and lets you switch
+  this off to save battery. If the card ever fails, the summary is written on the CPU
+  instead.
 - In the standard edition, or with AI switched off, it writes a plain summary from your
   session's notes and changes instead.
 
-It asks before replacing a summary you've already written, and if you start typing while
-it's working, it keeps your version.
+It asks before replacing a summary you've already written. While it's writing, the summary
+box shows the text as it arrives; it becomes editable again as soon as it's finished.
 
 ---
 

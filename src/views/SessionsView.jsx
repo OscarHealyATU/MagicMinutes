@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { confirmDialog } from '../fileio.js';
 import { api } from '../api.js';
 import { buildPrompt, collectSessionMaterial, draftSummary, tidyCapitals } from '../lib/recap.mjs';
-import { aiGenerate, aiStatus, noAiMessage, readAiEnabled } from '../lib/ai.mjs';
+import { aiGenerate, aiStatus, noAiMessage, readAiEnabled, readAiGpu } from '../lib/ai.mjs';
 import { useAutosave } from '../lib/useAutosave.js';
 
 const KIND_LABELS = {
@@ -37,6 +37,10 @@ export default function SessionsView({ reloadToken, focusId, onFocusUsed, onEnd 
   // doesn't show session B the "Working…"/result feedback meant for session A.
   const [aiBusyId, setAiBusyId] = useState(null);
   const [aiStatusById, setAiStatusById] = useState({});
+  // The AI's answer so far, per session, while it's being written. Shown in
+  // place of the summary box so it appears word by word; only the finished
+  // text is saved.
+  const [streamById, setStreamById] = useState({});
   // Latest sessions, readable from inside the long-running summarize() so it
   // can tell whether the player edited the summary while it was working.
   const sessionsRef = useRef(sessions);
@@ -114,16 +118,40 @@ export default function SessionsView({ reloadToken, focusId, onFocusUsed, onEnd 
       let summary = '';
       let resultStatus;
       if (ai && ai.available) {
-        setStatusFor(`Writing with ${ai.model}…`);
+        // The model reads all the notes before it writes a word, which takes
+        // a few seconds on a long session — say so, rather than look stuck.
+        setStatusFor('Reading your notes…');
+        setStreamById((prev) => ({ ...prev, [sessionId]: '' }));
+        let writing = false;
         try {
-          summary = tidyCapitals(await aiGenerate(buildPrompt(material)), material);
+          const result = await aiGenerate(buildPrompt(material), {
+            gpu: readAiGpu(globalThis.localStorage),
+            onText: (soFar) => {
+              if (!mountedRef.current || !soFar) return;
+              if (!writing) {
+                writing = true;
+                setStatusFor(`Writing with ${ai.model}…`);
+              }
+              setStreamById((prev) => ({ ...prev, [sessionId]: tidyCapitals(soFar, material) }));
+            },
+            onRestart: () => {
+              if (!mountedRef.current) return;
+              writing = false;
+              setStatusFor('The graphics card didn’t work, so starting again on the CPU…');
+              setStreamById((prev) => ({ ...prev, [sessionId]: '' }));
+            }
+          });
+          summary = tidyCapitals(result.text, material);
+          if (summary && result.gpuFallback) {
+            resultStatus = `Written by AI on the CPU, because the graphics card didn’t work (${result.gpuFallback}). You can switch the graphics card off in Settings.`;
+          }
         } catch (genErr) {
           summary = '';
           resultStatus = noAiMessage({ enabled, status: ai, error: genErr.message });
         }
       }
       if (summary) {
-        resultStatus = 'Written by AI ✓';
+        if (!resultStatus) resultStatus = 'Written by AI ✓';
       } else {
         summary = draftSummary(material);
         if (!resultStatus) resultStatus = noAiMessage({ enabled, status: ai });
@@ -157,7 +185,10 @@ export default function SessionsView({ reloadToken, focusId, onFocusUsed, onEnd 
     } catch (e) {
       if (mountedRef.current) setStatusFor(`Couldn't write a summary: ${e.message}`);
     } finally {
-      if (mountedRef.current) setAiBusyId((cur) => (cur === sessionId ? null : cur));
+      if (mountedRef.current) {
+        setAiBusyId((cur) => (cur === sessionId ? null : cur));
+        setStreamById(({ [sessionId]: _done, ...rest }) => rest);
+      }
     }
   }
 
@@ -313,12 +344,23 @@ export default function SessionsView({ reloadToken, focusId, onFocusUsed, onEnd 
                 <span className="status-text">{aiStatusById[selected._id]}</span>
               )}
             </div>
-            <textarea
-              className="content-area"
-              value={selected.summary}
-              placeholder="The session in your own words: big moments, cliffhangers, plans for next time…"
-              onChange={(e) => patchLocal(selected._id, { summary: e.target.value })}
-            />
+            {streamById[selected._id] !== undefined ? (
+              <div className="content-area ai-stream" aria-live="polite" aria-busy="true">
+                {streamById[selected._id] ? (
+                  streamById[selected._id]
+                ) : (
+                  <span className="ai-stream-waiting">Reading your notes…</span>
+                )}
+                <span className="ai-stream-cursor" aria-hidden="true" />
+              </div>
+            ) : (
+              <textarea
+                className="content-area"
+                value={selected.summary}
+                placeholder="The session in your own words: big moments, cliffhangers, plans for next time…"
+                onChange={(e) => patchLocal(selected._id, { summary: e.target.value })}
+              />
+            )}
           </>
         )}
       </section>

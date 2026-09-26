@@ -1,7 +1,9 @@
 // Puts the files for the AI edition in src-tauri/ai/ (which git ignores; they
 // are far too big for the repo):
 //
-//   ai/llama/     llama.cpp's prebuilt CPU engine (llama-completion + DLLs)
+//   ai/llama/     llama.cpp's prebuilt engine (llama-completion + DLLs): the
+//                 Vulkan build, which runs on the graphics card when there is
+//                 one and the setting is on, and on the CPU otherwise
 //   ai/models/    the model file (a GGUF)
 //   ai/model.json which model to load and how to prompt it
 //   ai/LICENSES/  licence texts that must ship alongside those files
@@ -25,12 +27,12 @@ const AI = join(ROOT, 'src-tauri', 'ai');
 
 const LLAMA = {
   build: 'b11017',
-  zip: 'llama-b11017-bin-win-cpu-x64.zip',
-  sha256: '0bd069a6251c9026993cdc59217c08b7507d41b66ad4a3b0e226f702ac9058d2',
+  zip: 'llama-b11017-bin-win-vulkan-x64.zip',
+  sha256: 'f5b31902824ad6e46c8eea81ae41be11ed2ed48bd8d22a11af6a3be08a8a5fa5',
   // Only what llama-completion needs to run; the zip holds many other tools.
   keep: (name) =>
     /^llama-completion(\.exe|-impl\.dll)$/.test(name) ||
-    /^(llama|llama-common|ggml|ggml-base|libomp)\.dll$/.test(name) ||
+    /^(llama|llama-common|ggml|ggml-base|ggml-vulkan|libomp)\.dll$/.test(name) ||
     /^ggml-cpu-.+\.dll$/.test(name) ||
     name === 'LICENSE-LLVM-OpenMP'
 };
@@ -73,12 +75,14 @@ async function download(url, to) {
 
 async function setupLlama() {
   const dir = join(AI, 'llama');
-  // A marker written last, listing every file: a run that failed partway (an
-  // exe without its DLLs) has no marker and gets redone from scratch.
+  // A marker written last, naming the zip and listing every file: a run that
+  // failed partway (an exe without its DLLs) has no marker, and a folder from
+  // a different pinned zip names the wrong one, so both are redone from scratch.
   const marker = join(dir, '.complete');
+  const source = `source: ${LLAMA.zip}`;
   if (existsSync(marker)) {
-    const listed = readFileSync(marker, 'utf8').split('\n').filter(Boolean);
-    if (listed.length && listed.every((name) => existsSync(join(dir, name)))) {
+    const [first, ...listed] = readFileSync(marker, 'utf8').split('\n').filter(Boolean);
+    if (first === source && listed.length && listed.every((name) => existsSync(join(dir, name)))) {
       console.log('engine: already in place');
       return;
     }
@@ -103,7 +107,7 @@ async function setupLlama() {
     const kept = readdirSync(out).filter(LLAMA.keep);
     if (!kept.includes('llama-completion.exe')) throw new Error('engine: llama-completion.exe not found in the zip');
     for (const name of kept) copyFileSync(join(out, name), join(staging, name));
-    writeFileSync(join(staging, '.complete'), kept.join('\n') + '\n');
+    writeFileSync(join(staging, '.complete'), [source, ...kept].join('\n') + '\n');
     mkdirSync(AI, { recursive: true });
     try {
       renameSync(staging, dir);
@@ -154,7 +158,7 @@ async function setupLicenses() {
       `Model: ${MODEL.name} (Qwen3-0.6B) by the Qwen team, Alibaba Cloud. Apache License 2.0, see Qwen3-LICENSE.txt.`,
       'This is a modified version: quantised to 4 bits (GGUF, Q4_K_M) as distributed by Ollama. No other changes.',
       '',
-      `Engine: llama.cpp ${LLAMA.build} by the ggml authors. MIT License, see llama.cpp-LICENSE.txt.`,
+      `Engine: llama.cpp ${LLAMA.build} (Vulkan build) by the ggml authors. MIT License, see llama.cpp-LICENSE.txt.`,
       'Includes the LLVM OpenMP runtime (libomp.dll), see LLVM-OpenMP-LICENSE.txt.',
       ''
     ].join('\r\n')
