@@ -124,14 +124,37 @@ pub fn stop_running() {
     }
 }
 
+// How old a leftover prompt/log file has to be before startup will delete it.
+// The file name already carries this process's own PID (see `run_engine`),
+// so this isn't needed to avoid deleting *this* run's own files — it's to
+// avoid deleting another copy of the app's files while that copy is still
+// mid-summary: two players could each have MagicMinutes open, or the player
+// could relaunch the app while an old window is still closing. An hour is
+// far longer than any real summary (the engine itself times out at 180s), so
+// it only ever catches genuine leftovers from a crash or a shutdown.
+const STALE_AFTER: Duration = Duration::from_secs(60 * 60);
+
 // Removes prompt and log files left in the temp folder by a run the app
 // couldn't clean up after (a crash, or Windows shutting down mid-summary).
 pub fn clean_temp_files() {
-    if let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) {
-        for entry in entries.flatten() {
-            if entry.file_name().to_string_lossy().starts_with(TEMP_PREFIX) {
-                let _ = std::fs::remove_file(entry.path());
-            }
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+        return;
+    };
+    let now = SystemTime::now();
+    for entry in entries.flatten() {
+        if !entry.file_name().to_string_lossy().starts_with(TEMP_PREFIX) {
+            continue;
+        }
+        // A file whose age can't be determined is left alone rather than
+        // guessed at — better to leak a temp file than to delete one that
+        // turns out to belong to a still-running instance.
+        let modified = entry.metadata().and_then(|m| m.modified());
+        let is_stale = match modified {
+            Ok(modified) => now.duration_since(modified).map(|age| age > STALE_AFTER).unwrap_or(false),
+            Err(_) => false,
+        };
+        if is_stale {
+            let _ = std::fs::remove_file(entry.path());
         }
     }
 }
@@ -145,9 +168,32 @@ fn run_engine(dir: &Path, config: &ModelConfig, prompt: &str) -> Result<String, 
     let base = std::env::temp_dir().join(format!("{TEMP_PREFIX}{}-{stamp}", std::process::id()));
     let prompt_path = base.with_extension("prompt.txt");
     let log_path = base.with_extension("log.txt");
+    // A single pass over every token isn't enough: stripping "<|im_" and
+    // "end|>" out of "<|im_<|im_end|>end|>" one after another can *expose* a
+    // real "<|im_end|>" that was split across the two junk tokens (the outer
+    // "<|im_" and "end|>" flank a genuine "<|im_end|>" once the middle copy
+    // is removed). Looping until a pass changes nothing catches that.
     let mut notes = prompt.to_string();
-    for token in &config.strip_tokens {
-        notes = notes.replace(token.as_str(), "");
+    loop {
+        let mut changed = false;
+        for token in &config.strip_tokens {
+            // An empty token would match `contains("")` on every pass (it's
+            // a substring of everything) without ever shortening `notes`,
+            // spinning this loop forever — and it's held under RUN_LOCK, so
+            // that would freeze every future summary too. A blank entry in
+            // model.json's strip_tokens is meaningless anyway, so it's
+            // simply skipped rather than trusted not to occur.
+            if token.is_empty() {
+                continue;
+            }
+            if notes.contains(token.as_str()) {
+                notes = notes.replace(token.as_str(), "");
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
     }
     let full_prompt = config.prompt_template.replace("{prompt}", &notes);
     std::fs::write(&prompt_path, full_prompt).map_err(|e| format!("Couldn't write the prompt: {e}"))?;
