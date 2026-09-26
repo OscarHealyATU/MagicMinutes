@@ -5,15 +5,33 @@
 // No React and no database in here, so tests/characters.test.mjs can exercise
 // the whole layout with plain objects.
 
-// Kept for the map's NPC dots, which colour by disposition.
+// Kept for the map's NPC dots, which colour by disposition. Values are CSS
+// custom properties (default = these same hexes, retuned under
+// data-cvd="on" — see styles.css) so colour-blind mode needs no plumbing
+// here: the swatch just repaints itself.
 export const DISPOSITION_COLORS = {
-  Ally: '#3f5e3a',
-  Friendly: '#6d411c',
-  Neutral: '#485354',
-  Suspicious: '#96602e',
-  Hostile: '#70250a',
-  Unknown: '#0f3a5c'
+  Ally: 'var(--disposition-ally, #3f5e3a)',
+  Friendly: 'var(--disposition-friendly, #6d411c)',
+  Neutral: 'var(--disposition-neutral, #485354)',
+  Suspicious: 'var(--disposition-suspicious, #96602e)',
+  Hostile: 'var(--disposition-hostile, #70250a)',
+  Unknown: 'var(--disposition-unknown, #0f3a5c)'
 };
+
+// A one-letter, colour-independent stand-in shown next to a disposition dot
+// in colour-blind mode (map NPC lists, the info card, character tree nodes).
+export const DISPOSITION_TAGS = {
+  Ally: 'A',
+  Friendly: 'F',
+  Neutral: 'N',
+  Suspicious: 'S',
+  Hostile: 'H',
+  Unknown: '?'
+};
+
+export function dispositionTag(disposition) {
+  return DISPOSITION_TAGS[disposition] || '?';
+}
 
 // Colours offered for group boxes.
 export const GROUP_COLORS = [
@@ -44,6 +62,18 @@ export function clampAlignment(alignment) {
 
 export function dispositionFor(alignment) {
   return bandFor(alignment).disposition;
+}
+
+// The single source of truth for "what disposition does this NPC show as
+// right now" — derived from alignment when the NPC has one, exactly like the
+// characters tree does, so the map's dots/tags and the tree can never
+// disagree about the same NPC (a fresh NPC has alignment 0, which reads as
+// Neutral, even though its plain `disposition` field still says the store's
+// default of "Unknown"). Only an NPC that predates alignment entirely (no
+// field at all) falls back to its plain `disposition`.
+export function dispositionOfNpc(npc) {
+  if (!npc) return 'Unknown';
+  return npc.alignment == null ? npc.disposition || 'Unknown' : dispositionFor(npc.alignment);
 }
 
 // Old NPCs (and ones the map created) only have a disposition; give them a
@@ -84,16 +114,56 @@ export function normalizeNpc(npc) {
 // `dir` says where the *target* sits relative to the NPC holding the relation:
 // 'below' puts the target underneath (Alara is the boss of henchman 1),
 // 'above' puts it overhead, 'level' keeps them side by side.
+// The five `dir: 'level'` types (sibling/partner/ally/rival/knows) are the
+// ones drawn as plain lines on the tree with no label — the CVD review found
+// partner vs ally hard to tell apart, so those five get a CSS custom property
+// (retuned under data-cvd="on") and a dash pattern applied only in that mode
+// (see CharactersView's edge rendering and styles.css).
 export const RELATION_TYPES = [
   { id: 'boss', label: 'Boss of', color: '#70250a', dir: 'below', hint: 'e.g. Alara runs the henchmen' },
   { id: 'worksfor', label: 'Works for', color: '#96602e', dir: 'above', hint: 'e.g. hired muscle, servant' },
   { id: 'parent', label: 'Parent of', color: '#6d411c', dir: 'below', hint: 'blood relation, one rung down' },
   { id: 'child', label: 'Child of', color: '#6d411c', dir: 'above', hint: 'blood relation, one rung up' },
-  { id: 'sibling', label: 'Sibling of', color: '#3f5e3a', dir: 'level', hint: 'brother, sister, cousin' },
-  { id: 'partner', label: 'Partner of', color: '#1d4a52', dir: 'level', hint: 'married, betrothed, lovers' },
-  { id: 'ally', label: 'Allied with', color: '#0f3a5c', dir: 'level', hint: 'friends, sworn to each other' },
-  { id: 'rival', label: 'Rival of', color: '#b1441d', dir: 'level', hint: 'enemies, competitors' },
-  { id: 'knows', label: 'Knows', color: '#485354', dir: 'level', hint: 'met once, owes a favour…' }
+  {
+    id: 'sibling',
+    label: 'Sibling of',
+    color: 'var(--rel-sibling, #3f5e3a)',
+    dir: 'level',
+    dash: null,
+    hint: 'brother, sister, cousin'
+  },
+  {
+    id: 'partner',
+    label: 'Partner of',
+    color: 'var(--rel-partner, #1d4a52)',
+    dir: 'level',
+    dash: '14 6',
+    hint: 'married, betrothed, lovers'
+  },
+  {
+    id: 'ally',
+    label: 'Allied with',
+    color: 'var(--rel-ally, #0f3a5c)',
+    dir: 'level',
+    dash: '9 4 2 4',
+    hint: 'friends, sworn to each other'
+  },
+  {
+    id: 'rival',
+    label: 'Rival of',
+    color: 'var(--rel-rival, #b1441d)',
+    dir: 'level',
+    dash: '5 5',
+    hint: 'enemies, competitors'
+  },
+  {
+    id: 'knows',
+    label: 'Knows',
+    color: 'var(--rel-knows, #485354)',
+    dir: 'level',
+    dash: '1.5 4',
+    hint: 'met once, owes a favour…'
+  }
 ];
 
 export function relationInfo(id) {
@@ -150,14 +220,42 @@ export function buildRelationEdges(npcs) {
 }
 
 // Longest-path depth, so a henchman under a lieutenant under a boss sits two
-// rows down. The iteration cap stops a relation cycle spinning forever.
+// rows down. A relation cycle (A is B's boss and B is A's boss) would
+// otherwise never settle: each pass bumps both of them down again, forever,
+// pushing them (and everyone under them) hundreds of rows down the page. So
+// before measuring depth, the parent/child edges are walked with a DFS and
+// any edge that closes a cycle — one pointing back at a node still on the
+// current path — is dropped; that's the standard way to cut a directed graph
+// down to a DAG, and it only ever removes edges that are already
+// contradictory (both "A bosses B" and "B bosses A" can't both be honoured).
 export function computeDepths(npcs, edges) {
   const depth = {};
   for (const n of npcs) depth[n._id] = 0;
   const tree = edges.filter((e) => e.parent && e.child);
+
+  const childrenOf = new Map();
+  for (const e of tree) {
+    if (!childrenOf.has(e.parent)) childrenOf.set(e.parent, []);
+    childrenOf.get(e.parent).push(e.child);
+  }
+  const UNVISITED = 0, VISITING = 1, DONE = 2;
+  const state = new Map();
+  const acyclic = [];
+  function visit(id) {
+    if ((state.get(id) || UNVISITED) !== UNVISITED) return;
+    state.set(id, VISITING);
+    for (const child of childrenOf.get(id) || []) {
+      if (state.get(child) === VISITING) continue; // back-edge: would close a cycle
+      acyclic.push({ parent: id, child });
+      visit(child);
+    }
+    state.set(id, DONE);
+  }
+  for (const n of npcs) visit(n._id);
+
   for (let pass = 0; pass < npcs.length; pass++) {
     let changed = false;
-    for (const e of tree) {
+    for (const e of acyclic) {
       if (depth[e.child] == null || depth[e.parent] == null) continue;
       if (depth[e.child] <= depth[e.parent]) {
         depth[e.child] = depth[e.parent] + 1;

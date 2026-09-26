@@ -203,8 +203,19 @@ function titleCase(name) {
 
 const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// Abbreviations whose period doesn't end a sentence. Without this, "i.e.
+// nothing" reads as two sentences: the standalone-"I" fix-up below mistakes
+// the "i" of "i.e." for the pronoun (its lookahead treats the period right
+// after it as word-ending punctuation), and then the real sentence-boundary
+// pass sees "e." + space + lowercase and capitalises the word after it —
+// together turning "i.e. nothing" into "I.e. Nothing". Each match here has
+// its periods swapped for a placeholder before both passes run, then
+// restored at the end, so neither pass can mistake them for real punctuation.
+const ABBREVIATIONS = /\b(e\.g|i\.e|etc|vs|mr|mrs|ms|dr|jr|sr)\.(?=[\s,]|$)/gi;
+const ABBR_MASK = '\u0001';
+
 export function tidyCapitals(text, material = {}) {
-  let out = String(text || '');
+  let out = String(text || '').replace(ABBREVIATIONS, (m) => m.replace(/\./g, ABBR_MASK));
   const names = [...(material.places || []), ...(material.npcs || [])]
     .map((d) => (d && d.name ? d.name.trim() : ''))
     .filter((n) => n.length >= 3)
@@ -214,9 +225,16 @@ export function tidyCapitals(text, material = {}) {
     // A name already written with capitals keeps them; an all-lowercase one
     // gets title case.
     const proper = name === name.toLowerCase() ? titleCase(name) : name;
-    out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(name)}(?![\\p{L}\\p{N}])`, 'giu'), proper);
+    // A replacer *function*, not a plain string: String.replace treats a
+    // string replacement specially ($&, $1, and "$$" meaning one literal
+    // "$"), so a name containing "$$" would otherwise come out as "$". A
+    // function's return value is always inserted exactly as given.
+    out = out.replace(
+      new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(name)}(?![\\p{L}\\p{N}])`, 'giu'),
+      () => proper
+    );
   }
   out = out.replace(/(^|[.!?]["')\]]?\s+|\n\s*)([\p{Ll}])/gu, (m, lead, ch) => lead + ch.toUpperCase());
   out = out.replace(/(?<![\p{L}\p{N}'])i(?=['\s,.!?]|$)/gu, 'I');
-  return out;
+  return out.replace(new RegExp(ABBR_MASK, 'g'), '.');
 }

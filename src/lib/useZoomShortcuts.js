@@ -13,7 +13,7 @@ function isTypingTarget(el) {
 // `containerRef`, using the same maths as the view's own wheel handler.
 // Always preventDefault on the keys we handle — otherwise WebView2 zooms the
 // whole page instead, which is exactly what this is here to avoid.
-// `initial` is the view's own starting {tx, ty}, restored (at scale 1) on
+// `initial` is the view's own starting {tx, ty, scale?}, restored on
 // Ctrl+0 — each view passes whatever it used for its own useState seed.
 export function useZoomShortcuts(containerRef, setView, { min = 0.3, max = 3, initial = { tx: 0, ty: 0 } } = {}) {
   useEffect(() => {
@@ -35,7 +35,7 @@ export function useZoomShortcuts(containerRef, setView, { min = 0.3, max = 3, in
 
       setView((v) => {
         if (isReset) {
-          return { ...v, scale: 1, tx: initial.tx, ty: initial.ty };
+          return { ...v, scale: initial.scale ?? 1, tx: initial.tx, ty: initial.ty };
         }
         const ns = Math.min(max, Math.max(min, v.scale * (isZoomIn ? ZOOM_IN : ZOOM_OUT)));
         const wx = (cx - v.tx) / v.scale;
@@ -47,5 +47,5 @@ export function useZoomShortcuts(containerRef, setView, { min = 0.3, max = 3, in
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [containerRef, setView, min, max, initial.tx, initial.ty]);
+  }, [containerRef, setView, min, max, initial.tx, initial.ty, initial.scale]);
 }

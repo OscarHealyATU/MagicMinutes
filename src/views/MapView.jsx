@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { CONNECTION_TYPES } from './PlacesView.jsx';
-import { DISPOSITION_COLORS, labelOf } from '../lib/characters.mjs';
+import { DISPOSITION_COLORS, dispositionOfNpc, dispositionTag, labelOf } from '../lib/characters.mjs';
 import {
   buildContainment,
   buildEdges,
@@ -16,11 +16,29 @@ import {
   packLayout,
   pushRectClear,
   stationFootprint,
-  TEXT_METRICS
+  TEXT_METRICS,
+  zoneFillStyle
 } from '../lib/mapZones.mjs';
 import { useZoomShortcuts } from '../lib/useZoomShortcuts.js';
 
 const GRID = 40;
+// The zone/footprint geometry below (TEXT_METRICS) is calibrated for the
+// default Quintessential label text. Easy-read (Comic Neue) and especially
+// OpenDyslexic render noticeably wider at the same pixel size, which — left
+// unscaled — makes a station or zone's reserved space too narrow and its
+// note/NPC list collides with whatever sits next to it. Widening the
+// per-character metrics by this rough factor keeps the packed layout roomy
+// enough under either font.
+const FONT_WIDTH_SCALE = { fantasy: 1, 'easy-read': 1.15, opendyslexic: 1.32 };
+// Colour-blind mode prefixes each NPC line with a "[F] " letter tag, which the
+// reserved list width has to count too (npcPrefix below).
+function metricsForFont(fontStyle, colorBlind = false) {
+  const scale = FONT_WIDTH_SCALE[fontStyle] || 1;
+  const base = scale === 1
+    ? TEXT_METRICS
+    : { ...TEXT_METRICS, nameCharW: TEXT_METRICS.nameCharW * scale, listCharW: TEXT_METRICS.listCharW * scale };
+  return colorBlind ? { ...base, npcPrefix: '[?] ' } : base;
+}
 // Shared geometry so a freshly auto-arranged zone's saved size matches what
 // zoneRects would compute anyway — no extra "grow" pass needed right after.
 const ZONE_GEOMETRY = { pad: 36, labelHeadroom: 28, minW: 120, minH: 80 };
@@ -239,7 +257,7 @@ function badgesFor(id, noteMatch, npcsByPlace, showNotes, showNpcs) {
 // badges above: a short, read-only preview of what the badges are counting.
 const MAX_LIST_NOTES = 4;
 const MAX_LIST_NPCS = 4;
-const LIST_LINE_HEIGHT = 13;
+const LIST_LINE_HEIGHT = TEXT_METRICS.lineH;
 
 function truncateLabel(text, max = 28) {
   const t = (text || '').trim();
@@ -262,16 +280,16 @@ function noteNpcListFor(id, noteMatch, npcsByPlace, showNotes, showNpcs) {
 // always matches what's actually drawn. Feeds `zoneRects`/`packLayout`'s
 // `footprintOf` and the drag clamps, so a zone rect always has room for its
 // members' text and a dragged station never overlaps its own zone's edge.
-function footprintFor(id, place, noteMatch, npcsByPlace, showNotes, showNpcs) {
+function footprintFor(id, place, noteMatch, npcsByPlace, showNotes, showNpcs, metrics = TEXT_METRICS) {
   const { notes, npcs, hidden } = noteNpcListFor(id, noteMatch, npcsByPlace, showNotes, showNpcs);
   return stationFootprint(
     {
       noteLines: notes.map((n) => truncateLabel(n.title || 'Untitled')),
-      npcLines: npcs.map((npc) => truncateLabel(labelOf(npc))),
+      npcLines: npcs.map((npc) => (metrics.npcPrefix || '') + truncateLabel(labelOf(npc))),
       hasMore: hidden > 0,
       nameLength: (place?.name || '').length
     },
-    TEXT_METRICS
+    metrics
   );
 }
 
@@ -289,18 +307,18 @@ function headerHeightFor(id, noteMatch, npcsByPlace, showNotes, showNpcs) {
 // sized to fit it. The header starts at the top-left cut, and the diagonal
 // moves out 1px per pixel down, so each row gets back roughly twice its depth:
 // the name (~10px down) little, the badges (~34px) more, the list (~49px) most.
-function headerWidthFor(id, place, noteMatch, npcsByPlace, showNotes, showNpcs) {
+function headerWidthFor(id, place, noteMatch, npcsByPlace, showNotes, showNpcs, metrics = TEXT_METRICS) {
   const { notes, npcs, hidden } = noteNpcListFor(id, noteMatch, npcsByPlace, showNotes, showNpcs);
-  const nameW = (place?.name || '').length * 11 + 8;
+  const nameW = (place?.name || '').length * (metrics.nameCharW + 4) + 8;
   const badgesW = ((notes.length > 0 ? 1 : 0) + (npcs.length > 0 ? 1 : 0)) * 46;
   const listW = notes.length + npcs.length > 0
     ? stationFootprint(
         {
           noteLines: notes.map((n) => truncateLabel(n.title || 'Untitled')),
-          npcLines: npcs.map((npc) => truncateLabel(labelOf(npc))),
+          npcLines: npcs.map((npc) => (metrics.npcPrefix || '') + truncateLabel(labelOf(npc))),
           hasMore: hidden > 0
         },
-        TEXT_METRICS
+        metrics
       ).right
     : 0;
   return Math.max(0, nameW - 10, badgesW - 34, listW - 49);
@@ -309,7 +327,7 @@ function headerWidthFor(id, place, noteMatch, npcsByPlace, showNotes, showNpcs) 
 // Renders that capped list as a column of SVG text under a station/zone's
 // badge row. `pointer-events: none` (see .map-station-list) keeps it from
 // ever intercepting a drag or a badge click.
-function NoteNpcList({ id, x, y, noteMatch, npcsByPlace, showNotes, showNpcs }) {
+function NoteNpcList({ id, x, y, noteMatch, npcsByPlace, showNotes, showNpcs, colorBlind }) {
   const { notes, npcs, hidden } = noteNpcListFor(id, noteMatch, npcsByPlace, showNotes, showNpcs);
   if (notes.length === 0 && npcs.length === 0) return null;
   let line = 0;
@@ -332,9 +350,12 @@ function NoteNpcList({ id, x, y, noteMatch, npcsByPlace, showNotes, showNpcs }) 
               cx="3"
               cy="0"
               r="3"
-              style={{ fill: DISPOSITION_COLORS[npc.disposition] || 'var(--text-dim)' }}
+              style={{ fill: DISPOSITION_COLORS[dispositionOfNpc(npc)] || 'var(--text-dim)' }}
             />
-            <text className="map-list-npc" x="10" y="4">{truncateLabel(labelOf(npc))}</text>
+            <text className="map-list-npc" x="10" y="4">
+              {colorBlind ? `[${dispositionTag(dispositionOfNpc(npc))}] ` : ''}
+              {truncateLabel(labelOf(npc))}
+            </text>
           </g>
         );
       })}
@@ -355,7 +376,8 @@ function tubePath(a, b) {
   return `M ${a.x} ${a.y} L ${mx} ${my} L ${b.x} ${b.y}`;
 }
 
-export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
+export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc, colorBlind, fontStyle }) {
+  const metrics = useMemo(() => metricsForFont(fontStyle, colorBlind), [fontStyle, colorBlind]);
   const [places, setPlaces] = useState([]);
   const [npcs, setNpcs] = useState([]);
   const [notes, setNotes] = useState([]);
@@ -368,9 +390,16 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
   // does: seeded from the doc's mapW/mapH, updated live while resizing, and
   // persisted on drop without waiting for a refetch.
   const [sizes, setSizes] = useState({});
+  // Overwritten once the first load computes a fit-to-content view (see the
+  // load effect below); this default only shows briefly, and covers the
+  // empty-map case where there's nothing to fit to.
+  const [initialView, setInitialView] = useState({ tx: 40, ty: 20 });
   const [view, setView] = useState({ tx: 40, ty: 20, scale: 1 });
   const [selectedId, setSelectedId] = useState(null);
   const [status, setStatus] = useState('');
+  // Collapsed by default only on narrow screens (the mobile CSS keys off the
+  // `.open` class) — on desktop the legend always shows in full regardless.
+  const [legendOpen, setLegendOpen] = useState(false);
   const drag = useRef(null);
   const svgRef = useRef(null);
   // What's in the database for each place's mapX/mapY, so moves the layout
@@ -378,6 +407,9 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
   // back into its band) can be saved after a drag without re-saving everything.
   const savedPosRef = useRef(new Map());
   const needsSaveRef = useRef(false);
+  // Guards the fit-to-content effect below so it only ever runs once per mount
+  // — after that, panning/zooming is the user's to control.
+  const fitDoneRef = useRef(false);
   // Bumped when a drag ends, so the save effect runs even if the drop itself
   // changed nothing that re-renders (a resize's size was already set live).
   const [saveTick, setSaveTick] = useState(0);
@@ -410,9 +442,9 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
   // can all look them up by id via a plain function.
   const footprintById = useMemo(() => {
     const m = new Map();
-    for (const p of places) m.set(p._id, footprintFor(p._id, p, noteMatch, npcsByPlace, showNotes, showNpcs));
+    for (const p of places) m.set(p._id, footprintFor(p._id, p, noteMatch, npcsByPlace, showNotes, showNpcs, metrics));
     return m;
-  }, [places, noteMatch, npcsByPlace, showNotes, showNpcs]);
+  }, [places, noteMatch, npcsByPlace, showNotes, showNpcs, metrics]);
 
   const headerById = useMemo(() => {
     const m = new Map();
@@ -422,9 +454,9 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
 
   const headerWidthById = useMemo(() => {
     const m = new Map();
-    for (const p of places) m.set(p._id, headerWidthFor(p._id, p, noteMatch, npcsByPlace, showNotes, showNpcs));
+    for (const p of places) m.set(p._id, headerWidthFor(p._id, p, noteMatch, npcsByPlace, showNotes, showNpcs, metrics));
     return m;
-  }, [places, noteMatch, npcsByPlace, showNotes, showNpcs]);
+  }, [places, noteMatch, npcsByPlace, showNotes, showNpcs, metrics]);
 
   // Zones plus the positions everything is actually drawn at: lobed zones
   // move their inner zones (and those zones' contents) to the lobe centres,
@@ -461,12 +493,66 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
       const patch = size
         ? { mapX: x, mapY: y, mapW: Math.round(size.w), mapH: Math.round(size.h), mapLobes: size.lobes ?? null }
         : { mapX: x, mapY: y };
-      writes.push(api.update('places', p._id, patch));
+      // Position/size-only — must not bump updatedAt (see api.updateLayout),
+      // or the layout re-centring that follows almost any drag would make
+      // every place it touches look "edited" in a session recap.
+      writes.push(api.updateLayout('places', p._id, patch));
     }
     if (writes.length) Promise.all(writes).catch((e) => setStatus(e.message));
   }, [layoutPos, places, sizes, saveTick]);
 
   const zoneById = useMemo(() => new Map(zones.map((z) => [z.id, z])), [zones]);
+
+  // First-load fit-to-content: there's no saved pan/zoom to restore (the view
+  // is never persisted), so without this the map opens at a fixed
+  // {40,20,1} that has nothing to do with where the stations/zones actually
+  // ended up — on a map that packs everything toward the top-left, that
+  // reads as "panned so everything sits above the visible area". Runs once
+  // real geometry exists (zone rects already include each zone's header/list
+  // reach, scaled for the active font) rather than off raw station points,
+  // so it's accurate for a font-widened layout too.
+  useEffect(() => {
+    if (fitDoneRef.current || places.length === 0 || !svgRef.current) return;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    const expand = (x, y) => {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    };
+    for (const zone of zones) {
+      const r = zone.rect;
+      if (!r) continue;
+      expand(r.x, r.y);
+      expand(r.x + r.w, r.y + r.h);
+    }
+    for (const p of places) {
+      if (zoneById.has(p._id)) continue;
+      const pt = layoutPos[p._id];
+      if (!pt) continue;
+      const fp = footprintById.get(p._id) || { right: 0, down: 0 };
+      expand(pt.x - 12, pt.y - 24);
+      expand(pt.x + fp.right, pt.y + fp.down);
+    }
+    if (!Number.isFinite(minX)) return; // nothing placed yet
+    fitDoneRef.current = true;
+    const pad = 50;
+    minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+    const rect = svgRef.current.getBoundingClientRect();
+    const vw = rect.width || 1200;
+    const vh = rect.height || 800;
+    const contentW = Math.max(1, maxX - minX);
+    const contentH = Math.max(1, maxY - minY);
+    const scale = Math.min(1, Math.max(0.3, Math.min(vw / contentW, vh / contentH)));
+    const tx = (vw - contentW * scale) / 2 - minX * scale;
+    const ty = (vh - contentH * scale) / 2 - minY * scale;
+    setView({ tx, ty, scale });
+    setInitialView({ tx, ty, scale });
+  }, [zones, layoutPos, places, zoneById, footprintById]);
 
   const unplacedNotes = useMemo(
     () =>
@@ -525,9 +611,9 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
         // for those instead. Root-level stops keep computeLayout's spread.
         const packed = packLayout(docs, docContainment, {
           ...PACK_OPTS,
-          footprintOf: (id) => footprintFor(id, docById.get(id), docNoteMatch, docNpcsByPlace, true, true),
+          footprintOf: (id) => footprintFor(id, docById.get(id), docNoteMatch, docNpcsByPlace, true, true, metrics),
           headerOf: (id) => headerHeightFor(id, docNoteMatch, docNpcsByPlace, true, true),
-          headerWidthOf: (id) => headerWidthFor(id, docById.get(id), docNoteMatch, docNpcsByPlace, true, true)
+          headerWidthOf: (id) => headerWidthFor(id, docById.get(id), docNoteMatch, docNpcsByPlace, true, true, metrics)
         }).positions;
         docs.forEach((p) => {
           if ((p.mapX == null || p.mapY == null) && docContainment.parentOf[p._id]) {
@@ -549,7 +635,7 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
     );
   }, []);
 
-  useZoomShortcuts(svgRef, setView, { min: 0.3, max: 3, initial: { tx: 40, ty: 20 } });
+  useZoomShortcuts(svgRef, setView, { min: 0.3, max: 3, initial: initialView });
 
   // Keep a dragged place inside its zone's octagon (or, in joined octagons,
   // the band around the inner zones), clear of the zone's header.
@@ -584,7 +670,8 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
             patch.mapLobes = newSizes[p._id].lobes ?? null;
             patch.mapH = Math.round(newSizes[p._id].h);
           }
-          return api.update('places', p._id, patch);
+          // Position/size-only — see api.updateLayout.
+          return api.updateLayout('places', p._id, patch);
         })
       );
       setStatus('Layout saved ✓');
@@ -879,7 +966,7 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
         const hp = { x: Math.round(pos[d.heldZoneId].x), y: Math.round(pos[d.heldZoneId].y) };
         savedPosRef.current.set(d.heldZoneId, hp);
         api
-          .update('places', d.heldZoneId, {
+          .updateLayout('places', d.heldZoneId, {
             mapX: hp.x,
             mapY: hp.y,
             mapW: Math.round(held.w),
@@ -925,7 +1012,7 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
       setSaveTick((t) => t + 1);
       setStatus('Saving…');
       api
-        .update('places', d.id, {
+        .updateLayout('places', d.id, {
           mapX: x,
           mapY: y,
           mapW: Math.round(d.rectW),
@@ -947,7 +1034,7 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
         const y = Math.round(p.y);
         savedPosRef.current.set(d.id, { x, y });
         api
-          .update('places', d.id, { mapX: x, mapY: y, mapW: Math.round(s.w), mapH: Math.round(s.h), mapLobes: s.lobes ?? null })
+          .updateLayout('places', d.id, { mapX: x, mapY: y, mapW: Math.round(s.w), mapH: Math.round(s.h), mapLobes: s.lobes ?? null })
           .catch((e) => setStatus(e.message));
         needsSaveRef.current = true;
         setSaveTick((t) => t + 1);
@@ -992,12 +1079,9 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
             // the SVG attributes below and silently fail to paint.
             if (!r0 || [r0.x, r0.y, r0.w, r0.h].some((n) => !Number.isFinite(n))) return null;
             if (zone.lobes.some((l) => ![l.x, l.y, l.w, l.h, l.cut].every(Number.isFinite))) return null;
-            // Deeper (more nested) zones get a stronger tint so a small inner
-            // zone (Anvils) reads as a distinct patch inside the paler outer
-            // band (Varrow) — color-mix keeps both themed via --accent-strong.
-            const tintPct = 7 + Math.min(zone.depth, 3) * 10;
-            const tint = `color-mix(in srgb, var(--accent-strong) ${tintPct}%, transparent)`;
-            const strokeTint = `color-mix(in srgb, var(--accent-strong) ${Math.min(tintPct + 25, 70)}%, transparent)`;
+            // Nesting levels alternate between two fills (A, B, A, B…); see
+            // zoneFillStyle, which the Settings preview shares.
+            const zoneFill = zoneFillStyle(zone.depth);
             const badges = badgesFor(zone.id, noteMatch, npcsByPlace, showNotes, showNpcs);
             // One octagon, or several joined into one outline for a lobed
             // zone. The header (name, badges, list) sits on the top-left-most
@@ -1012,7 +1096,7 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
                 <path
                   className="map-zone-fill"
                   d={outline}
-                  style={{ fill: tint, stroke: strokeTint, strokeWidth: 2 }}
+                  style={{ ...zoneFill, strokeWidth: 2 }}
                 />
                 <path
                   className="map-zone-border-band"
@@ -1048,6 +1132,7 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
                   npcsByPlace={npcsByPlace}
                   showNotes={showNotes}
                   showNpcs={showNpcs}
+                  colorBlind={colorBlind}
                 />
                 {/* Sits on the middle of the bottom-right diagonal edge. */}
                 <rect
@@ -1070,11 +1155,13 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
             if (!rawA || !rawB) return null;
             const a = zoneA ? lobesAttachPoint(zoneA.lobes, rawB) : rawA;
             const b = zoneB ? lobesAttachPoint(zoneB.lobes, rawA) : rawB;
+            const info = connInfo(e.type);
             return (
               <path
                 key={i}
                 d={tubePath(a, b)}
-                stroke={connInfo(e.type).color}
+                stroke={info.color}
+                strokeDasharray={colorBlind ? info.dash : null}
                 strokeWidth="6"
                 fill="none"
                 strokeLinecap="round"
@@ -1123,6 +1210,7 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
                   npcsByPlace={npcsByPlace}
                   showNotes={showNotes}
                   showNpcs={showNpcs}
+                  colorBlind={colorBlind}
                 />
               </g>
             );
@@ -1173,10 +1261,21 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
       )}
 
       {(legendTypes.length > 0 || zones.length > 0) && (
-        <div className="map-legend">
+        <div className={`map-legend ${legendOpen ? 'open' : ''}`}>
+          <button className="map-legend-toggle" onClick={() => setLegendOpen((o) => !o)}>
+            Legend {legendOpen ? '▾' : '▸'}
+          </button>
           {legendTypes.map((t) => (
             <div key={t.id} className="map-legend-row">
-              <span className="map-legend-swatch" style={{ background: t.color }} />
+              <svg className="map-legend-swatch" width="22" height="10" aria-hidden="true">
+                <line
+                  x1="1" y1="5" x2="21" y2="5"
+                  stroke={t.color}
+                  strokeWidth="4"
+                  strokeDasharray={colorBlind ? t.dash : null}
+                  strokeLinecap="round"
+                />
+              </svg>
               {t.label} line
             </div>
           ))}
@@ -1184,7 +1283,7 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
             <div className="map-legend-row">
               <span
                 className="map-legend-swatch map-legend-zone"
-                style={{ background: 'color-mix(in srgb, var(--accent-strong) 45%, transparent)' }}
+                style={{ background: zoneFillStyle(1).fill }}
               />
               Zone (city / region / contains)
             </div>
@@ -1261,9 +1360,10 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc }) {
                   <span className="map-note-title">
                     <span
                       className="map-npc-dot"
-                      style={{ background: DISPOSITION_COLORS[n.disposition] || '#485354' }}
-                      title={n.disposition}
+                      style={{ background: DISPOSITION_COLORS[dispositionOfNpc(n)] || '#485354' }}
+                      title={dispositionOfNpc(n)}
                     />
+                    {colorBlind ? `[${dispositionTag(dispositionOfNpc(n))}] ` : ''}
                     {labelOf(n)}
                     {n.occupation && <span className="map-npc-occ"> · {n.occupation}</span>}
                   </span>

@@ -33,6 +33,7 @@ import {
   resizeLimits,
   stationFootprint,
   TEXT_METRICS,
+  zoneFillStyle,
   zoneRects
 } from '../src/lib/mapZones.mjs';
 
@@ -103,6 +104,42 @@ await test('buildEdges: records inside/contains edges with a mentioning first', 
   const containsEdge = edges.find((e) => e.type === 'contains' && e.a === 'varrow');
   assert.ok(containsEdge, 'Varrow should have a `contains` edge naming Anvils');
   assert.equal(containsEdge.b, 'anvils');
+});
+
+await test('buildEdges: a containment block is never lost to the same-pair dedupe', () => {
+  // The reported bug: the Lantern Inn is both "Near: the docks of Cairne" and
+  // "Inside: Cairne" — two blocks on the same place naming the same other
+  // place. The old dedupe keyed only on the pair, so the second (containment)
+  // block was silently dropped once the first (a line, not a zone) block had
+  // claimed that pair — leaving the inn with no parent at all.
+  const cairne = place('cairne', 'Cairne');
+  const lanternInn = place('lanternInn', 'Lantern Inn', [
+    { type: 'near', text: 'the docks of Cairne' },
+    { type: 'inside', text: 'Cairne' }
+  ]);
+  const places = [cairne, lanternInn];
+  const edges = buildEdges(places);
+
+  assert.ok(
+    edges.some((e) => e.type === 'near' && e.a === 'lanternInn' && e.b === 'cairne'),
+    'the Near line edge should still exist'
+  );
+  const insideEdge = edges.find((e) => e.type === 'inside' && e.a === 'lanternInn');
+  assert.ok(insideEdge, 'the Inside containment edge must not be dropped');
+  assert.equal(insideEdge.b, 'cairne');
+
+  const containment = buildContainment(places, edges);
+  assert.equal(containment.parentOf.lanternInn, 'cairne', 'the inn should end up inside Cairne\'s zone');
+});
+
+await test('zoneFillStyle: alternates by depth, and matches the map legend fill formula MapView uses', () => {
+  const even = zoneFillStyle(0);
+  const odd = zoneFillStyle(1);
+  assert.match(even.fill, /8%/);
+  assert.match(odd.fill, /22%/);
+  assert.equal(zoneFillStyle(2).fill, even.fill, 'depth alternates, it does not keep darkening');
+  assert.match(even.stroke, /55%/);
+  assert.equal(even.stroke, odd.stroke, 'the stroke tint does not depend on depth');
 });
 
 await test('buildContainment: builds the exact Varrow / Anvils tree', () => {
@@ -352,7 +389,7 @@ await test('stationFootprint: 3 notes + 2 NPCs reserves a badge row plus 5 list 
     hasMore: false,
     nameLength: 10
   });
-  assert.equal(fp.down, 18 + 20 + 13 * 5 + 6);
+  assert.equal(fp.down, 18 + 20 + TEXT_METRICS.lineH * 5 + 6);
 });
 
 await test('stationFootprint: a line longer than the 28-char cap is measured at the cap, not its full length', () => {
@@ -394,7 +431,7 @@ await test('zoneRects: opts.headerOf reserves a per-zone header above the places
   const containment = { childrenOf: { anvils: ['saltedBoar'] }, depthOf: { anvils: 0 } };
   const positions = { anvils: { x: 0, y: 0 }, saltedBoar: { x: 400, y: 100 } };
   const pad = 36;
-  const header = 30 + 20 + 13 * 3 + 8; // label + badges + a 3-line list + margin = 97
+  const header = 30 + 20 + TEXT_METRICS.lineH * 3 + 8; // label + badges + a 3-line list + margin
   const zone = (h) =>
     layoutZones(places, positions, containment, {
       pad,

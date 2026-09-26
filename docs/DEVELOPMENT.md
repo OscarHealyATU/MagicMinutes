@@ -43,6 +43,7 @@ for f in tests/*.test.mjs; do node "$f"; done
 | `transfer.test.mjs` | Export/import validation, merge/replace planning, theme preference |
 | `recap.test.mjs` | Session summary material, the no-AI summary, the AI on/off preference |
 | `noteText.test.mjs` | The readable note format used for emailing and importing notes |
+| `a11y.test.mjs` | Font-style and colour-blind mode preferences |
 
 `npm test` runs them all. The Rust side has its own tests, including one that runs the real
 AI engine if its files are in place:
@@ -118,6 +119,7 @@ src/
     noteText.mjs        readable note format for emailing and importing notes
     dice.mjs            roll-notation parser for combos
     theme.mjs           light/dark preference
+    a11y.mjs            font-style and colour-blind mode preferences
 src-tauri/              Rust entry point (src/ai.rs runs the AI engine), plugins, capabilities, icons, Android project
   tauri.ai.conf.json    extra config for the AI edition: bundles the ai/ folder
 scripts/                setup-ai.mjs (fetch AI files), name-installers.mjs

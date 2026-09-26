@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { confirm } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../fileio.js';
 import { api } from '../api.js';
 import { NpcEditor, PlayerEditor, GroupsPanel } from '../components/CharacterEditor.jsx';
 import { useZoomShortcuts } from '../lib/useZoomShortcuts.js';
@@ -14,6 +14,7 @@ import {
   computeGroupHulls,
   describeRelation,
   dispositionFor,
+  dispositionTag,
   labelOf,
   normalizeNpc,
   relationInfo,
@@ -50,7 +51,31 @@ function matches(npc, query) {
   );
 }
 
-export default function CharactersView({ focusId }) {
+// SVG <text> never wraps or clips itself, so an unusually long name would
+// otherwise stretch clear across the canvas over every other node. Same cap
+// MapView's own truncateLabel uses for station names.
+function truncateLabel(text, max = 28) {
+  const t = (text || '').trim();
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
+
+// The tree's root row (depth 0 — bosses, unaffiliated NPCs) lays out at y=0,
+// which would sit right behind the toolbar/align-axis bars that float over
+// the top of the canvas. Starting the camera panned down clears them.
+const DEFAULT_TX = 0;
+// A centred label on a node near the layout's left edge can clip against the
+// canvas edge under the easy-read/OpenDyslexic fonts, which render wider
+// than Quintessential — give it a little more breathing room only then, so
+// the fantasy default (where it already fits) is untouched.
+function initialTx() {
+  const font = typeof document !== 'undefined' ? document.documentElement.dataset.font : null;
+  return font === 'easy-read' || font === 'opendyslexic' ? 40 : DEFAULT_TX;
+}
+
+export default function CharactersView({ focusId, colorBlind, onFocusUsed }) {
+  // Computed once per mount (the view remounts on every tab switch, so this
+  // still picks up a font style changed in Settings the next time you open it).
+  const INITIAL_VIEW = useMemo(() => ({ tx: initialTx(), ty: 130 }), []);
   const [npcs, setNpcs] = useState([]);
   const [players, setPlayers] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -59,9 +84,22 @@ export default function CharactersView({ focusId }) {
   const [showGroups, setShowGroups] = useState(false);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
-  const [view, setView] = useState({ tx: 0, ty: 0, scale: 1 });
+  const [view, setView] = useState({ ...INITIAL_VIEW, scale: 1 });
   const [dragPos, setDragPos] = useState({});
   const drag = useRef(null);
+  // Debounce timers for group edits, keyed by group id — see patchGroupLocal.
+  const groupSaveTimers = useRef({});
+  useEffect(
+    () => () => {
+      // Flush any pending group renames on unmount (tab switch away) rather
+      // than dropping the last few keystrokes.
+      for (const [id, t] of Object.entries(groupSaveTimers.current)) {
+        clearTimeout(t.timer);
+        api.update('groups', id, t.patch).catch(() => {});
+      }
+    },
+    []
+  );
   const svgRef = useRef(null);
   const centred = useRef(null);
 
@@ -96,7 +134,11 @@ export default function CharactersView({ focusId }) {
   useEffect(reload, []);
 
   useEffect(() => {
-    if (focusId) setSelectedId(focusId);
+    if (focusId) {
+      setSelectedId(focusId);
+      onFocusUsed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusId]);
 
   // Bring a node opened from elsewhere (the map, a search hit) into view once.
@@ -112,15 +154,23 @@ export default function CharactersView({ focusId }) {
   // ---------- creating & saving ----------
 
   async function createNpc() {
-    const npc = normalizeNpc(await api.create('npcs', { name: '', descriptor: '' }));
-    setNpcs((prev) => [npc, ...prev]);
-    setEditing({ kind: 'npc', draft: npc });
+    try {
+      const npc = normalizeNpc(await api.create('npcs', { name: '', descriptor: '' }));
+      setNpcs((prev) => [npc, ...prev]);
+      setEditing({ kind: 'npc', draft: npc });
+    } catch (e) {
+      setStatus(e.message);
+    }
   }
 
   async function createPlayer() {
-    const player = await api.create('players', { characterName: 'New character' });
-    setPlayers((prev) => [player, ...prev]);
-    setEditing({ kind: 'player', draft: player });
+    try {
+      const player = await api.create('players', { characterName: 'New character' });
+      setPlayers((prev) => [player, ...prev]);
+      setEditing({ kind: 'player', draft: player });
+    } catch (e) {
+      setStatus(e.message);
+    }
   }
 
   async function saveEditing() {
@@ -150,23 +200,27 @@ export default function CharactersView({ focusId }) {
   async function deleteEditing() {
     const { kind, draft } = editing;
     const name = kind === 'npc' ? labelOf(draft) : draft.characterName;
-    if (!(await confirm(`Delete "${name}"?`, { title: 'Confirm delete', kind: 'warning' }))) return;
-    if (kind === 'npc') {
-      await api.remove('npcs', draft._id);
-      // Drop relations pointing at the NPC that just went away.
-      for (const other of npcs) {
-        const kept = (other.relations || []).filter((r) => r.targetId !== draft._id);
-        if (kept.length !== (other.relations || []).length) {
-          await api.update('npcs', other._id, { relations: kept });
+    if (!(await confirmDialog(`Delete "${name}"?`, { title: 'Confirm delete', kind: 'warning' }))) return;
+    try {
+      if (kind === 'npc') {
+        await api.remove('npcs', draft._id);
+        // Drop relations pointing at the NPC that just went away.
+        for (const other of npcs) {
+          const kept = (other.relations || []).filter((r) => r.targetId !== draft._id);
+          if (kept.length !== (other.relations || []).length) {
+            await api.update('npcs', other._id, { relations: kept });
+          }
         }
+        setSelectedId(null);
+        reload();
+      } else {
+        await api.remove('players', draft._id);
+        setPlayers((prev) => prev.filter((p) => p._id !== draft._id));
       }
-      setSelectedId(null);
-      reload();
-    } else {
-      await api.remove('players', draft._id);
-      setPlayers((prev) => prev.filter((p) => p._id !== draft._id));
+      setEditing(null);
+    } catch (e) {
+      setStatus(e.message);
     }
-    setEditing(null);
   }
 
   // ---------- groups ----------
@@ -184,18 +238,41 @@ export default function CharactersView({ focusId }) {
     return group;
   }
 
+  // The name field saves on every keystroke (no separate Save button in this
+  // panel), so debounce it instead of firing a request per character — store.mjs
+  // still serializes overlapping writes to the same group, but there's no
+  // reason to send one per keystroke in the first place. A colour click is
+  // its own single patch call, so it rides along with whatever's pending
+  // rather than waiting out a fresh debounce.
   function patchGroupLocal(id, patch) {
     setGroups((prev) => prev.map((g) => (g._id === id ? { ...g, ...patch } : g)));
-    api.update('groups', id, patch).catch((e) => setStatus(e.message));
+    const pending = groupSaveTimers.current[id];
+    if (pending) clearTimeout(pending.timer);
+    const mergedPatch = { ...(pending?.patch || {}), ...patch };
+    const timer = setTimeout(() => {
+      delete groupSaveTimers.current[id];
+      api.update('groups', id, mergedPatch).catch((e) => setStatus(e.message));
+    }, 500);
+    groupSaveTimers.current[id] = { timer, patch: mergedPatch };
   }
 
   async function deleteGroup(id) {
     const group = groups.find((g) => g._id === id);
-    if (!(await confirm(`Delete the group "${group.name}"? Its NPCs stay, just ungrouped.`,
+    if (!(await confirmDialog(`Delete the group "${group.name}"? Its NPCs stay, just ungrouped.`,
       { title: 'Confirm delete', kind: 'warning' }))) return;
-    await api.remove('groups', id);
-    for (const npc of npcs.filter((n) => n.groupId === id)) {
-      await api.update('npcs', npc._id, { groupId: '' });
+    // A pending debounced rename must not recreate this group after it's gone.
+    const pending = groupSaveTimers.current[id];
+    if (pending) {
+      clearTimeout(pending.timer);
+      delete groupSaveTimers.current[id];
+    }
+    try {
+      await api.remove('groups', id);
+      for (const npc of npcs.filter((n) => n.groupId === id)) {
+        await api.update('npcs', npc._id, { groupId: '' });
+      }
+    } catch (e) {
+      setStatus(e.message);
     }
     setGroups((prev) => prev.filter((g) => g._id !== id));
     reload();
@@ -204,11 +281,20 @@ export default function CharactersView({ focusId }) {
   async function autoArrange() {
     setStatus('Arranging…');
     setDragPos({});
-    for (const npc of npcs.filter((n) => n.mapX != null || n.mapY != null)) {
-      await api.update('npcs', npc._id, { mapX: null, mapY: null });
+    try {
+      // Position-only — must not bump updatedAt (see api.updateLayout) or a
+      // single Auto-arrange would make every NPC show up as "edited" in
+      // whichever session happens to be running.
+      await Promise.all(
+        npcs
+          .filter((n) => n.mapX != null || n.mapY != null)
+          .map((npc) => api.updateLayout('npcs', npc._id, { mapX: null, mapY: null }))
+      );
+      setNpcs((prev) => prev.map((n) => ({ ...n, mapX: null, mapY: null })));
+      setStatus('Arranged ✓');
+    } catch (e) {
+      setStatus(e.message);
     }
-    setNpcs((prev) => prev.map((n) => ({ ...n, mapX: null, mapY: null })));
-    setStatus('Arranged ✓');
     setTimeout(() => setStatus(''), 1500);
   }
 
@@ -268,7 +354,8 @@ export default function CharactersView({ focusId }) {
       delete next[d.id];
       return next;
     });
-    api.update('npcs', d.id, { mapX: x, mapY: y }).catch((e) => setStatus(e.message));
+    // Position-only — see api.updateLayout: a drag isn't an edit.
+    api.updateLayout('npcs', d.id, { mapX: x, mapY: y }).catch((e) => setStatus(e.message));
   }
 
   function onWheel(e) {
@@ -283,7 +370,7 @@ export default function CharactersView({ focusId }) {
     });
   }
 
-  useZoomShortcuts(svgRef, setView, { min: 0.3, max: 2.5, initial: { tx: 0, ty: 0 } });
+  useZoomShortcuts(svgRef, setView, { min: 0.3, max: 2.5, initial: INITIAL_VIEW });
 
   const selectedRelations = selected ? relationsOf(selected, npcs) : [];
 
@@ -343,8 +430,13 @@ export default function CharactersView({ focusId }) {
             {hulls.map((h) => (
               <g key={h._id} className="group-hull">
                 <rect x={h.x} y={h.y} width={h.w} height={h.h} rx="28" style={{ stroke: h.color }} />
-                <text className="group-hull-label" x={h.x + 16} y={h.y + 20} fill={h.color}>
-                  {h.name} · {h.count}
+                <text
+                  className="group-hull-label"
+                  x={h.x + 16}
+                  y={h.y + 20}
+                  style={{ fill: `color-mix(in srgb, ${h.color} 45%, var(--text))` }}
+                >
+                  {truncateLabel(h.name)} · {h.count}
                 </text>
               </g>
             ))}
@@ -355,12 +447,20 @@ export default function CharactersView({ focusId }) {
               if (!a || !b) return null;
               const info = relationInfo(e.type);
               if (e.dir === 'level') {
+                // The CSS class already gives every level edge a uniform dash
+                // in the default look (relation-edge.level); colour-blind mode
+                // overrides it per type via inline style, which outranks the
+                // class rule, so sibling/partner/ally/rival/knows each get
+                // their own dash instead of all looking the same.
                 return (
                   <line
                     key={i}
                     className="relation-edge level"
                     x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                    stroke={info.color}
+                    style={{
+                      stroke: info.color,
+                      strokeDasharray: colorBlind ? info.dash || 'none' : undefined
+                    }}
                   />
                 );
               }
@@ -389,10 +489,13 @@ export default function CharactersView({ focusId }) {
                   onPointerDown={(e) => onNodePointerDown(e, npc._id)}
                 >
                   <circle r={NODE_R} fill={alignmentColor(npc.alignment)} />
-                  <text className="char-node-label" y={NODE_R + 16}>{labelOf(npc)}</text>
+                  {colorBlind && (
+                    <text className="char-node-tag" y="4">{dispositionTag(dispositionFor(npc.alignment))}</text>
+                  )}
+                  <text className="char-node-label" y={NODE_R + 16}>{truncateLabel(labelOf(npc))}</text>
                   {(npc.occupation || npc.race) && (
                     <text className="char-node-sub" y={NODE_R + 30}>
-                      {[npc.race, npc.occupation].filter(Boolean).join(' · ')}
+                      {truncateLabel([npc.race, npc.occupation].filter(Boolean).join(' · '))}
                     </text>
                   )}
                 </g>

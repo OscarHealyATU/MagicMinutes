@@ -473,7 +473,13 @@ MagicMinutes is released under the [MIT License](LICENSE): you're free to use, c
 and share it, including in your own projects, as long as the copyright notice comes along.
 
 The bundled fonts, Jim Nightshade and Quintessential, are under the SIL Open Font License;
-their license files are in [`public/fonts`](public/fonts).
+their license files are in [`public/fonts`](public/fonts). Settings → Appearance also offers
+two accessible alternatives, self-hosted the same way (no CDN, so they work offline). Easy-read
+uses Comic Sans where the system has it (Windows) and the bundled look-alike **Comic Neue**
+where it doesn't (Android), with **Lexend** for headings; the other is **OpenDyslexic** (with Lexend for headings)
+for the OpenDyslexic style. All three are [Fontsource](https://fontsource.org) packages under
+the SIL Open Font License; their license files are in `public/fonts` too
+(`OFL-ComicNeue.txt`, `OFL-Lexend.txt`, `OFL-OpenDyslexic.txt`).
 
 The AI edition also includes:
 - **[Qwen3-0.6B](https://huggingface.co/Qwen/Qwen3-0.6B)** by the Qwen team, Alibaba Cloud,

@@ -28,7 +28,12 @@ export function buildEdges(places) {
         const name = (other.name || '').trim().toLowerCase();
         if (name.length < 3 || !text.includes(name)) continue;
         text = text.split(name).join('§'); // consume so contained names don't re-match
-        const key = [place._id, other._id].sort().join('|');
+        // Keyed by type as well as the pair: a place can have a "Near" block
+        // *and* an "Inside" block naming the same other place (e.g. the
+        // Lantern Inn is both near the docks and inside Cairne), and the
+        // containment edge must never be lost just because a same-pair line
+        // edge was seen first.
+        const key = `${[place._id, other._id].sort().join('|')}:${block.type}`;
         if (seen.has(key)) continue;
         seen.add(key);
         edges.push({ a: place._id, b: other._id, type: block.type });
@@ -262,6 +267,20 @@ export function edgeAttachPoint(rect, fromPoint) {
 export const REGULAR_OCTAGON_RATIO = 1 / (2 + Math.SQRT2); // ≈ 0.293
 export const OCTAGON_MAX_CUT = 64;
 
+// The zone-fill tint alternates 8%/22% by nesting depth so each ring reads as
+// its own band rather than darkening monotonically with depth, mixed into
+// --bg (opaque) so an inner zone covers its parent instead of compounding
+// with it. Shared here so MapView and the Settings appearance preview (which
+// has to draw zones without duplicating MapView's own logic) can never drift
+// apart on what a zone actually looks like.
+export function zoneFillStyle(depth) {
+  const tintPct = depth % 2 === 0 ? 8 : 22;
+  return {
+    fill: `color-mix(in srgb, var(--accent-strong) ${tintPct}%, var(--bg))`,
+    stroke: `color-mix(in srgb, var(--accent-strong) 55%, var(--bg))`
+  };
+}
+
 export function octagonCut(rect, maxCut = OCTAGON_MAX_CUT) {
   const short = Math.min(rect.w, rect.h);
   if (!(short > 0)) return 0;
@@ -402,12 +421,12 @@ export function octagonAttachPoint(rect, fromPoint, cut = octagonCut(rect)) {
 
 export const TEXT_METRICS = {
   nameCharW: 7,    // px per character of a station/zone name
-  listCharW: 6.5,  // px per character of a note/NPC list line
+  listCharW: 7,    // px per character of a note/NPC list line (12.5px + slight letter-spacing)
   listIconW: 16,   // fixed width reserved for a list line's icon/dot
   nameCap: 28,     // same truncation cap MapView's truncateLabel uses
   nameRowH: 18,    // vertical space for the name row
   badgeRowH: 20,   // vertical space for the badge row, when there is one
-  lineH: 13,       // each note/NPC list line's height
+  lineH: 14,       // each note/NPC list line's height
   marginRight: 12, // margin added past the widest text
   marginBottom: 6  // margin added below the last line
 };

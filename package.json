@@ -12,9 +12,12 @@
     "setup:ai": "node scripts/setup-ai.mjs",
     "build:standard": "node scripts/build.mjs standard",
     "build:ai": "node scripts/build.mjs ai",
-    "test": "node tests/store.test.mjs && node tests/characters.test.mjs && node tests/mapZones.test.mjs && node tests/recap.test.mjs && node tests/transfer.test.mjs && node tests/noteText.test.mjs"
+    "test": "node tests/store.test.mjs && node tests/characters.test.mjs && node tests/mapZones.test.mjs && node tests/recap.test.mjs && node tests/transfer.test.mjs && node tests/noteText.test.mjs && node tests/a11y.test.mjs"
   },
   "dependencies": {
+    "@fontsource/comic-neue": "^5.3.0",
+    "@fontsource/lexend": "^5.3.0",
+    "@fontsource/opendyslexic": "^5.3.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2",
     "@tauri-apps/plugin-fs": "^2.5.1",

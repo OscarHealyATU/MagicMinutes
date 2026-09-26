@@ -9,16 +9,13 @@
     "sql:default",
     "sql:allow-execute",
     "dialog:default",
-    "dialog:allow-confirm",
-    "dialog:allow-open",
-    "dialog:allow-save",
     {
       "identifier": "fs:allow-read-text-file",
-      "allow": [{ "path": "$HOME/**/*" }]
+      "allow": [{ "path": "$APPDATA/**" }]
     },
     {
       "identifier": "fs:allow-write-text-file",
-      "allow": [{ "path": "$HOME/**/*" }]
+      "allow": [{ "path": "$APPDATA/**" }]
     }
   ]
 }
