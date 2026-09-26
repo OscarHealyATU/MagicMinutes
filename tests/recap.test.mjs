@@ -5,7 +5,15 @@
 
 import assert from 'node:assert/strict';
 import { buildPrompt, collectSessionMaterial, draftSummary, tidyCapitals } from '../src/lib/recap.mjs';
-import { MAX_PROMPT_CHARS, fitPrompt, readAiEnabled, writeAiEnabled } from '../src/lib/ai.mjs';
+import {
+  MAX_PROMPT_CHARS,
+  fitPrompt,
+  readAiEnabled,
+  readAiGpu,
+  visibleSoFar,
+  writeAiEnabled,
+  writeAiGpu
+} from '../src/lib/ai.mjs';
 
 let passed = 0;
 let failed = 0;
@@ -232,6 +240,41 @@ await test('fitPrompt leaves short prompts alone and trims long ones with a note
   const fitted = fitPrompt(long);
   assert.ok(fitted.length < long.length);
   assert.ok(fitted.endsWith('too long.)'));
+});
+
+await test('the graphics-card setting defaults to on, remembers off, and survives a broken storage', () => {
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  assert.equal(readAiGpu(storage), true);
+  assert.equal(writeAiGpu(false, storage), true);
+  assert.equal(readAiGpu(storage), false);
+  writeAiGpu(true, storage);
+  assert.equal(readAiGpu(storage), true);
+  const broken = { getItem: () => { throw new Error('no'); }, setItem: () => { throw new Error('no'); } };
+  assert.equal(readAiGpu(broken), true);
+  assert.equal(writeAiGpu(false, broken), false);
+});
+
+await test('visibleSoFar shows a streaming answer as it grows', () => {
+  assert.equal(visibleSoFar(''), '');
+  assert.equal(visibleSoFar('\n\nThe party'), 'The party');
+  assert.equal(visibleSoFar('The party met Farah.'), 'The party met Farah.');
+});
+
+await test('visibleSoFar drops colour codes, even half-arrived ones', () => {
+  assert.equal(visibleSoFar('\x1b[33mThe party\x1b[0m met'), 'The party met');
+  assert.equal(visibleSoFar('The party\x1b['), 'The party');
+});
+
+await test('visibleSoFar hides a thinking block, and everything after an unfinished one', () => {
+  assert.equal(visibleSoFar('<think>\nhmm\n</think>\n\nThe party'), 'The party');
+  assert.equal(visibleSoFar('<think>\nstill thinking'), '');
+});
+
+await test('visibleSoFar removes the end marker and holds back a half-arrived one', () => {
+  assert.equal(visibleSoFar('They left town. [end of text]'), 'They left town. ');
+  assert.equal(visibleSoFar('They left town. [end of'), 'They left town. ');
+  assert.equal(visibleSoFar('They left town. <thi'), 'They left town. ');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

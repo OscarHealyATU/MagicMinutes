@@ -5,7 +5,7 @@ import { COLLECTIONS } from '../lib/store.mjs';
 import { confirmDialog, openTextFile, saveTextFile, writeAppDataBackup } from '../fileio.js';
 import { THEMES } from '../lib/theme.mjs';
 import { FONT_STYLES } from '../lib/a11y.mjs';
-import { aiStatus, readAiEnabled, writeAiEnabled } from '../lib/ai.mjs';
+import { aiGpus, aiStatus, readAiEnabled, readAiGpu, writeAiEnabled, writeAiGpu } from '../lib/ai.mjs';
 import {
   buildExport,
   countDocs,
@@ -51,6 +51,8 @@ export default function SettingsView({
   const [mode, setMode] = useState('merge');
   const [ai, setAi] = useState(null);
   const [aiOn, setAiOn] = useState(() => readAiEnabled(globalThis.localStorage));
+  const [gpuOn, setGpuOn] = useState(() => readAiGpu(globalThis.localStorage));
+  const [gpus, setGpus] = useState(null); // null while still looking
 
   function refreshCounts() {
     readAll()
@@ -64,12 +66,21 @@ export default function SettingsView({
 
   useEffect(refreshCounts, []);
   useEffect(() => {
-    aiStatus().then(setAi);
+    aiStatus().then((status) => {
+      setAi(status);
+      // Only the AI edition has an engine to ask.
+      if (status.available) aiGpus().then(setGpus);
+    });
   }, []);
 
   function toggleAi(on) {
     setAiOn(on);
     writeAiEnabled(on, globalThis.localStorage);
+  }
+
+  function toggleGpu(on) {
+    setGpuOn(on);
+    writeAiGpu(on, globalThis.localStorage);
   }
 
   function say(message) {
@@ -269,6 +280,32 @@ export default function SettingsView({
                   </span>
                 </span>
               </label>
+              {gpus === null ? (
+                <p className="settings-help">Looking for a graphics card…</p>
+              ) : gpus.length ? (
+                <label className="settings-toggle">
+                  <input
+                    type="checkbox"
+                    checked={gpuOn}
+                    disabled={!aiOn}
+                    onChange={(e) => toggleGpu(e.target.checked)}
+                  />
+                  <span>
+                    <strong>Use the graphics card</strong>
+                    <span className="settings-help">
+                      {' '}
+                      Much faster: a summary takes a few seconds instead of up to half a minute.
+                      Found: {gpus.join(', ')}. The very first summary on a card is slower while
+                      it gets ready. If the card ever fails, the summary is written on the CPU
+                      instead. Switch this off to save battery on a laptop.
+                    </span>
+                  </span>
+                </label>
+              ) : (
+                <p className="settings-help">
+                  No graphics card the AI can use was found, so summaries are written on the CPU.
+                </p>
+              )}
             </>
           ) : ai.installed ? (
             <div className="settings-error">⚠ AI summaries can’t run: {ai.reason}</div>

@@ -81,7 +81,7 @@ ignores because the model alone is about 500 MB:
 
 | Path | What it is |
 |---|---|
-| `ai/llama/` | llama.cpp's prebuilt Windows CPU engine (`llama-completion.exe` and its DLLs), downloaded from the pinned llama.cpp release and checked against its SHA-256 |
+| `ai/llama/` | llama.cpp's prebuilt Windows **Vulkan** engine (`llama-completion.exe` and its DLLs), downloaded from the pinned llama.cpp release and checked against its SHA-256. It includes the CPU code too, so one engine covers both settings |
 | `ai/models/qwen3-0.6b-q4_k_m.gguf` | The model. Copied from Ollama's store, so run `ollama pull qwen3:0.6b` once first |
 | `ai/model.json` | Which model file to load, its chat format, and sampling settings |
 | `ai/LICENSES/` | Licence texts for the model, llama.cpp and OpenMP, shipped with the app |
@@ -96,7 +96,22 @@ goes). To make the change stick for fresh checkouts, update `MODEL` and `MODEL_C
 installer.
 
 The engine runs once per summary as a hidden background process, reading its prompt from a
-temp file. Nothing keeps running afterwards.
+temp file. Nothing keeps running afterwards. Its output is streamed to the Recap page through
+a Tauri `Channel` as it's written, so the summary appears word by word.
+
+**Graphics card:** with **Settings → Use the graphics card** on (the default), the engine
+gets `-ngl 99`: every layer goes on the GPU, and llama.cpp picks the device itself, preferring
+a dedicated card over built-in graphics. Off, it gets `-ngl 0 --device none`, which is plain
+CPU. If a GPU run fails for any reason other than the app closing, `ai.rs` tells the page to
+clear what it has shown and runs again on the CPU. Settings lists the usable cards from
+`llama-completion --list-devices`.
+
+Measured on an RTX 3050 Ti laptop with a long session (about 2,300 prompt tokens): the CPU
+read the notes in 6–9 s and wrote about 17 tokens/s. The GPU read them in 0.4 s and wrote
+about 145 tokens/s. The laptop's built-in Radeon managed 3.5 s and 57 tokens/s. The first run
+on a card is slow (about 25 s here) while the driver builds and caches its shaders. Vulkan
+was chosen over CUDA because it works on NVIDIA, AMD and Intel with just the normal driver,
+and adds about 13 MB to the installer against CUDA's roughly 540 MB.
 
 The installer is unsigned, so Windows SmartScreen warns on first run.
 

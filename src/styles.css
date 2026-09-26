@@ -538,6 +538,45 @@ input:focus, select:focus, textarea:focus {
   font-size: 14px;
 }
 
+/* The AI's summary while it's being written: dressed like the textarea it
+   temporarily replaces, keeping the model's line breaks. */
+.ai-stream {
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  overflow-y: auto;
+}
+
+.ai-stream-waiting {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.ai-stream-cursor {
+  display: inline-block;
+  width: 0.5em;
+  height: 1.1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--gold);
+  animation: ai-cursor-blink 1s steps(1) infinite;
+}
+
+@keyframes ai-cursor-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-stream-cursor {
+    animation: none;
+  }
+}
+
 /* ---------- Combo builder ---------- */
 
 .combo-preview {
