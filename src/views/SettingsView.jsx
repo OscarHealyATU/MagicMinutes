@@ -1,13 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import AppearancePreview from '../components/AppearancePreview.jsx';
 import { COLLECTIONS } from '../lib/store.mjs';
-import { confirmDialog, openTextFile, saveTextFile } from '../fileio.js';
+import { confirmDialog, openTextFile, saveTextFile, writeAppDataBackup } from '../fileio.js';
 import { THEMES } from '../lib/theme.mjs';
+import { FONT_STYLES } from '../lib/a11y.mjs';
 import { aiStatus, readAiEnabled, writeAiEnabled } from '../lib/ai.mjs';
 import {
   buildExport,
   countDocs,
   describePlan,
+  describePlanByCollection,
   exportFilename,
   parseExport,
   planImport
@@ -33,7 +36,14 @@ async function readAll() {
   return out;
 }
 
-export default function SettingsView({ theme, onThemeChange }) {
+export default function SettingsView({
+  theme,
+  onThemeChange,
+  fontStyle,
+  onFontStyleChange,
+  colorBlind,
+  onColorBlindChange
+}) {
   const [counts, setCounts] = useState(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -104,17 +114,49 @@ export default function SettingsView({ theme, onThemeChange }) {
       }
 
       const summary = describePlan({ mode, totals });
+      // Per-collection, not just the totals — "1 replaced" reads very
+      // differently depending on whether that's one note or every NPC in the
+      // campaign, and Replace especially needs that spelled out before
+      // someone confirms it.
+      const breakdown = describePlanByCollection({ plan }, (n) => LABELS[n] || n);
+      const detail = breakdown.length ? `\n\n${breakdown.join('\n')}` : '';
       const warning =
         mode === 'replace'
-          ? `\n\nReplace mode deletes the ${totals.remove} entries that aren't in this file. This cannot be undone — export a backup first if you're not sure.`
+          ? `\n\nReplace mode deletes the ${totals.remove} entries that aren't in this file. A safety backup of what you currently have is saved automatically before this runs.`
           : '';
-      const ok = await confirmDialog(`Import "${file.name}"?\n\n${summary}${warning}`, {
+      const ok = await confirmDialog(`Import "${file.name}"?\n\n${summary}${detail}${warning}`, {
         title: 'Confirm import',
         kind: mode === 'replace' ? 'warning' : 'info'
       });
       if (!ok) {
         say('Import cancelled.');
         return;
+      }
+
+      let backupNote = '';
+      if (mode === 'replace') {
+        setStatus('Backing up your current data…');
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        let path;
+        try {
+          path = await writeAppDataBackup(
+            `magicminutes-safety-backup-${stamp}.json`,
+            JSON.stringify(buildExport(existing), null, 2)
+          );
+        } catch (backupErr) {
+          // Replace is irreversible, so if the safety net itself couldn't be
+          // written, stop here rather than deleting anything with no way
+          // back — a blocked import is recoverable; a failed backup plus a
+          // completed delete is not.
+          throw new Error(
+            `Couldn't write a safety backup, so nothing was changed: ${backupErr.message}`
+          );
+        }
+        // `path` is null in a plain browser (no app data folder to write
+        // to) — expected there, not a failure, so the import still proceeds.
+        backupNote = path
+          ? ` A safety backup was saved to ${path}.`
+          : ' (No safety backup was made — this only happens in the installed app, not this preview.)';
       }
 
       setStatus('Importing…');
@@ -126,7 +168,11 @@ export default function SettingsView({ theme, onThemeChange }) {
         for (const id of step.remove) await api.remove(name, id);
       }
       refreshCounts();
-      say(`Imported. ${summary}${data.skipped.length ? ` Skipped unknown sections: ${data.skipped.join(', ')}.` : ''}`);
+      const notices = [
+        data.skipped.length ? `Skipped unknown sections: ${data.skipped.join(', ')}.` : '',
+        data.duplicates.length ? `Duplicate ids were collapsed in: ${data.duplicates.join(', ')}.` : ''
+      ].filter(Boolean).join(' ');
+      say(`Imported. ${summary}${notices ? ` ${notices}` : ''}${backupNote}`);
     } catch (e) {
       setStatus('');
       setError(e.message);
@@ -164,6 +210,44 @@ export default function SettingsView({ theme, onThemeChange }) {
               </button>
             ))}
           </div>
+
+          <div className="section-label">Font style</div>
+          <p className="settings-help">
+            Easy-read and OpenDyslexic apply everywhere too — the map, the characters tree,
+            lists and forms.
+          </p>
+          <div className="theme-row font-row">
+            {FONT_STYLES.map((f) => (
+              <button
+                key={f.id}
+                className={`theme-option font-option font-option-${f.id} ${fontStyle === f.id ? 'on' : ''}`}
+                onClick={() => onFontStyleChange(f.id)}
+              >
+                <span className="theme-option-label font-option-name">{f.label}</span>
+                <span className="theme-option-hint">{f.hint}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="section-label">Colour-blind mode</div>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={colorBlind}
+              onChange={(e) => onColorBlindChange(e.target.checked)}
+            />
+            <span>
+              <strong>Adjust colours that carry meaning on their own</strong>
+              <span className="settings-help">
+                {' '}
+                Retunes NPC disposition, map connection lines and the characters tree's
+                relationship lines for better separation under colour blindness, and adds dash
+                patterns and letter tags so those lines and dots don't rely on colour alone.
+              </span>
+            </span>
+          </label>
+
+          <AppearancePreview colorBlind={colorBlind} />
         </section>
 
         <section className="settings-card">

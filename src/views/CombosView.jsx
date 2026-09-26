@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { confirm } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../fileio.js';
 import { api } from '../api.js';
 import BlockStack from '../components/BlockStack.jsx';
 import { combineBlocks, rollCombo } from '../lib/dice.mjs';
+import { useAutosave } from '../lib/useAutosave.js';
 
 export const BLOCK_TYPES = [
   { id: 'action', label: 'Action', color: '#70250a', hint: 'Attack, Cast a Spell, Dash…' },
@@ -43,25 +44,29 @@ function ComboTotal({ combo }) {
     // A typed damage total (physical dice) wins over the in-app roll
     const manualTotal = manualDmg.trim() === '' ? null : Number(manualDmg);
     const manual = manualTotal != null && !Number.isNaN(manualTotal);
-    await api.create('rolls', {
-      comboId: combo._id,
-      comboName: combo.name,
-      notation: combined.notation || combined.hitLabel || '',
-      die: manual || result?.damageRolls?.length ? sizes[0] || 0 : result?.d20s ? 20 : 0,
-      rolls: manual
-        ? []
-        : result?.damageRolls?.length
-          ? result.damageRolls.map((d) => d.value)
-          : result?.d20s || [],
-      modifier: manual || result?.damageRolls?.length ? combined.mod : combined.toHit,
-      total: manual ? manualTotal : result?.damageTotal ?? result?.attackTotal ?? 0,
-      outcome,
-      manual
-    });
-    setResult(null);
-    setManualDmg('');
-    setLogMsg(`Logged as ${outcome} — no peeking mid-game!`);
-    setTimeout(() => setLogMsg(''), 3000);
+    try {
+      await api.create('rolls', {
+        comboId: combo._id,
+        comboName: combo.name,
+        notation: combined.notation || combined.hitLabel || '',
+        die: manual || result?.damageRolls?.length ? sizes[0] || 0 : result?.d20s ? 20 : 0,
+        rolls: manual
+          ? []
+          : result?.damageRolls?.length
+            ? result.damageRolls.map((d) => d.value)
+            : result?.d20s || [],
+        modifier: manual || result?.damageRolls?.length ? combined.mod : combined.toHit,
+        total: manual ? manualTotal : result?.damageTotal ?? result?.attackTotal ?? 0,
+        outcome,
+        manual
+      });
+      setResult(null);
+      setManualDmg('');
+      setLogMsg(`Logged as ${outcome} — no peeking mid-game!`);
+      setTimeout(() => setLogMsg(''), 3000);
+    } catch (e) {
+      setLogMsg(`Couldn't log that roll: ${e.message}`);
+    }
   }
 
   const hasAnything = combined.notation || combined.hitLabel;
@@ -163,45 +168,65 @@ export default function CombosView() {
     api.list('combos').then(setCombos).catch((e) => setStatus(e.message));
   }, []);
 
+  const autosave = useAutosave({
+    id: selected?._id ?? null,
+    snapshot: selected && {
+      name: selected.name,
+      description: selected.description,
+      blocks: selected.blocks.map(({ type, text, condition, roll }) => ({ type, text, condition, roll }))
+    },
+    onSave: (id, snap) => api.update('combos', id, snap),
+    onSaved: (id, updated) => patchLocal(id, { updatedAt: updated.updatedAt })
+  });
+
+  // A create/delete error auto-clears after a few seconds — otherwise it
+  // permanently shadows the autosave status line below it (Saving…/Saved ✓),
+  // which keeps working fine underneath even after an unrelated error here.
+  function showError(message) {
+    setStatus(message);
+    setTimeout(() => setStatus((s) => (s === message ? '' : s)), 4000);
+  }
+
   async function createCombo() {
-    const combo = await api.create('combos', {
-      name: 'New combo',
-      blocks: [
-        { type: 'movement', text: '', condition: '', roll: '' },
-        { type: 'action', text: '', condition: '', roll: '' },
-        { type: 'bonus', text: '', condition: '', roll: '' }
-      ]
-    });
-    setCombos([combo, ...combos]);
-    setSelectedId(combo._id);
+    try {
+      const combo = await api.create('combos', {
+        name: 'New combo',
+        blocks: [
+          { type: 'movement', text: '', condition: '', roll: '' },
+          { type: 'action', text: '', condition: '', roll: '' },
+          { type: 'bonus', text: '', condition: '', roll: '' }
+        ]
+      });
+      setCombos([combo, ...combos]);
+      setSelectedId(combo._id);
+    } catch (e) {
+      showError(e.message);
+    }
   }
 
   function patchLocal(id, patch) {
     setCombos((prev) => prev.map((c) => (c._id === id ? { ...c, ...patch } : c)));
   }
 
+  // "Save" is now "save now" — autosave already keeps this persisted.
   async function saveCombo() {
     if (!selected) return;
-    setStatus('Saving…');
-    const blocks = selected.blocks.map(({ type, text, condition, roll }) => ({
-      type, text, condition, roll
-    }));
-    const updated = await api.update('combos', selected._id, {
-      name: selected.name,
-      description: selected.description,
-      blocks
-    });
-    patchLocal(selected._id, updated);
-    setStatus('Saved ✓');
-    setTimeout(() => setStatus(''), 1500);
+    await autosave.flush();
   }
 
   async function deleteCombo() {
     if (!selected) return;
-    if (!(await confirm(`Delete "${selected.name}"?`, { title: 'Confirm delete', kind: 'warning' }))) return;
-    await api.remove('combos', selected._id);
-    setCombos((prev) => prev.filter((c) => c._id !== selected._id));
-    setSelectedId(null);
+    if (!(await confirmDialog(`Delete "${selected.name}"?`, { title: 'Confirm delete', kind: 'warning' }))) return;
+    autosave.markDeleted(selected._id);
+    try {
+      await api.remove('combos', selected._id);
+      setCombos((prev) => prev.filter((c) => c._id !== selected._id));
+      setSelectedId(null);
+    } catch (e) {
+      // Delete didn't actually go through — restore autosave for this combo.
+      autosave.unmarkDeleted(selected._id);
+      showError(e.message);
+    }
   }
 
   return (
@@ -254,7 +279,7 @@ export default function CombosView() {
           <>
             <button className="btn mobile-back" onClick={() => setSelectedId(null)}>← Back</button>
             <div className="editor-toolbar">
-              <span className="status-text">{status}</span>
+              <span className="status-text">{status || autosave.status}</span>
               <button className="btn primary" onClick={saveCombo}>Save</button>
               <button className="btn danger" onClick={deleteCombo}>Delete</button>
             </div>

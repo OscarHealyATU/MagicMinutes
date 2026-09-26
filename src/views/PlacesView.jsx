@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { confirm } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../fileio.js';
 import { api } from '../api.js';
 import BlockStack from '../components/BlockStack.jsx';
+import { useAutosave } from '../lib/useAutosave.js';
 
 export const PLACE_TYPES = [
   'City', 'Town', 'Village', 'Region', 'Wilderness', 'Dungeon',
@@ -20,17 +21,53 @@ const PLACE_TYPE_COLORS = {
   Other: '#485354'
 };
 
+// `between`/`near`/`route`/`direction`/`note` are the ones drawn as map
+// lines (see MapView) — the CVD review found between vs near hard to tell
+// apart, so those five carry a CSS custom property (retuned under
+// data-cvd="on") and a dash pattern applied only in that mode, mirrored in
+// the map's legend. `inside`/`contains` become zones, not lines, and keep
+// plain colours.
 export const CONNECTION_TYPES = [
-  { id: 'between', label: 'Between', color: '#0f3a5c', hint: 'e.g. the city of Cairne and the town of Eberald' },
-  { id: 'near', label: 'Near', color: '#1d4a52', hint: 'e.g. the Whispering Falls' },
+  {
+    id: 'between',
+    label: 'Between',
+    color: 'var(--line-between, #0f3a5c)',
+    dash: '9 4 2 4',
+    hint: 'e.g. the city of Cairne and the town of Eberald'
+  },
+  {
+    id: 'near',
+    label: 'Near',
+    color: 'var(--line-near, #1d4a52)',
+    dash: '14 6',
+    hint: 'e.g. the Whispering Falls'
+  },
   { id: 'inside', label: 'Inside', color: '#485354', hint: 'e.g. the kingdom of Vall' },
   { id: 'contains', label: 'Contains', color: '#3f5e3a', hint: 'e.g. the Gilded Goose inn, the docks' },
-  { id: 'route', label: 'On the route', color: '#6d411c', hint: 'e.g. the King’s Road, two days from Cairne' },
-  { id: 'direction', label: 'Direction', color: '#96602e', hint: 'e.g. north of Eberald, across the ridge' },
-  { id: 'note', label: 'Note', color: '#2a3439', hint: 'anything else about getting there' }
+  {
+    id: 'route',
+    label: 'On the route',
+    color: 'var(--line-route, #6d411c)',
+    dash: null,
+    hint: 'e.g. the King’s Road, two days from Cairne'
+  },
+  {
+    id: 'direction',
+    label: 'Direction',
+    color: 'var(--line-direction, #96602e)',
+    dash: '5 5',
+    hint: 'e.g. north of Eberald, across the ridge'
+  },
+  {
+    id: 'note',
+    label: 'Note',
+    color: 'var(--line-note, #2a3439)',
+    dash: '1.5 4',
+    hint: 'anything else about getting there'
+  }
 ];
 
-export default function PlacesView({ focusId }) {
+export default function PlacesView({ focusId, onFocusUsed }) {
   const [places, setPlaces] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [search, setSearch] = useState('');
@@ -41,37 +78,68 @@ export default function PlacesView({ focusId }) {
   useEffect(() => {
     api.list('places').then((docs) => {
       setPlaces(docs);
-      if (focusId) setSelectedId(focusId);
+      if (focusId) {
+        setSelectedId(focusId);
+        onFocusUsed?.();
+      }
     }).catch((e) => setStatus(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusId]);
 
+  const autosave = useAutosave({
+    id: selected?._id ?? null,
+    snapshot: selected && {
+      name: selected.name,
+      type: selected.type,
+      description: selected.description,
+      notes: selected.notes,
+      connections: (selected.connections || []).map(({ type, text }) => ({ type, text }))
+    },
+    onSave: (id, snap) => api.update('places', id, snap),
+    onSaved: (id, updated) => patchLocal(id, { updatedAt: updated.updatedAt })
+  });
+
+  // A create/delete error auto-clears after a few seconds — otherwise it
+  // permanently shadows the autosave status line below it (Saving…/Saved ✓),
+  // which keeps working fine underneath even after an unrelated error here.
+  function showError(message) {
+    setStatus(message);
+    setTimeout(() => setStatus((s) => (s === message ? '' : s)), 4000);
+  }
+
   async function createPlace() {
-    const place = await api.create('places', { name: 'Unnamed place' });
-    setPlaces([place, ...places]);
-    setSelectedId(place._id);
+    try {
+      const place = await api.create('places', { name: 'Unnamed place' });
+      setPlaces([place, ...places]);
+      setSelectedId(place._id);
+    } catch (e) {
+      showError(e.message);
+    }
   }
 
   function patchLocal(id, patch) {
     setPlaces((prev) => prev.map((p) => (p._id === id ? { ...p, ...patch } : p)));
   }
 
+  // "Save" is now "save now" — autosave already keeps this persisted.
   async function savePlace() {
     if (!selected) return;
-    setStatus('Saving…');
-    const { _id, name, type, description, notes } = selected;
-    const connections = selected.connections.map(({ type, text }) => ({ type, text }));
-    const updated = await api.update('places', _id, { name, type, description, notes, connections });
-    patchLocal(_id, updated);
-    setStatus('Saved ✓');
-    setTimeout(() => setStatus(''), 1500);
+    await autosave.flush();
   }
 
   async function deletePlace() {
     if (!selected) return;
-    if (!(await confirm(`Delete "${selected.name}"?`, { title: 'Confirm delete', kind: 'warning' }))) return;
-    await api.remove('places', selected._id);
-    setPlaces((prev) => prev.filter((p) => p._id !== selected._id));
-    setSelectedId(null);
+    if (!(await confirmDialog(`Delete "${selected.name}"?`, { title: 'Confirm delete', kind: 'warning' }))) return;
+    autosave.markDeleted(selected._id);
+    try {
+      await api.remove('places', selected._id);
+      setPlaces((prev) => prev.filter((p) => p._id !== selected._id));
+      setSelectedId(null);
+    } catch (e) {
+      // Delete didn't actually go through — restore autosave for this place.
+      autosave.unmarkDeleted(selected._id);
+      showError(e.message);
+    }
   }
 
   const visible = places.filter((p) => {
@@ -138,7 +206,7 @@ export default function PlacesView({ focusId }) {
           <>
             <button className="btn mobile-back" onClick={() => setSelectedId(null)}>← Back</button>
             <div className="editor-toolbar">
-              <span className="status-text">{status}</span>
+              <span className="status-text">{status || autosave.status}</span>
               <button className="btn primary" onClick={savePlace}>Save</button>
               <button className="btn danger" onClick={deletePlace}>Delete</button>
             </div>

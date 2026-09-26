@@ -43,6 +43,11 @@ export const api = {
   list: async (resource) => store.listDocs(await getDb(), resource),
   create: async (resource, body) => store.createDoc(await getDb(), resource, body),
   update: async (resource, id, body) => store.updateDoc(await getDb(), resource, id, body),
+  // Same as update, but doesn't bump updatedAt — for position/size-only writes
+  // (map drags, auto-arrange, character-tree drags) so moving something isn't
+  // indistinguishable from editing it in a session's recap.
+  updateLayout: async (resource, id, body) =>
+    store.updateDoc(await getDb(), resource, id, body, { touch: false }),
   upsert: async (resource, doc) => store.upsertDoc(await getDb(), resource, doc),
   remove: async (resource, id) => store.removeDoc(await getDb(), resource, id),
   sessions: {

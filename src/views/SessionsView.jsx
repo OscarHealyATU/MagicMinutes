@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { confirm } from '@tauri-apps/plugin-dialog';
+import { confirmDialog } from '../fileio.js';
 import { api } from '../api.js';
 import { buildPrompt, collectSessionMaterial, draftSummary, tidyCapitals } from '../lib/recap.mjs';
 import { aiGenerate, aiStatus, noAiMessage, readAiEnabled } from '../lib/ai.mjs';
+import { useAutosave } from '../lib/useAutosave.js';
 
 const KIND_LABELS = {
   note: '📜 Notes',
@@ -28,7 +29,7 @@ function fmtDuration(start, end) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-export default function SessionsView({ reloadToken, focusId, activeSession, onEnd }) {
+export default function SessionsView({ reloadToken, focusId, onFocusUsed, onEnd }) {
   const [sessions, setSessions] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [status, setStatus] = useState('');
@@ -46,19 +47,38 @@ export default function SessionsView({ reloadToken, focusId, activeSession, onEn
   useEffect(() => () => {
     mountedRef.current = false;
   }, []);
+  // Live selectedId, for the long-running summarize() below to check it's
+  // still touching the autosave hook's own currently-bound session.
+  const selectedIdRef = useRef(selectedId);
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
 
   const selected = sessions.find((s) => s._id === selectedId) || null;
 
   useEffect(() => {
     api.list('sessions').then((docs) => {
       setSessions(docs);
-      if (focusId) setSelectedId(focusId);
+      if (focusId) {
+        setSelectedId(focusId);
+        onFocusUsed?.();
+      }
     }).catch((e) => setStatus(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadToken, focusId]);
 
   function patchLocal(id, patch) {
     setSessions((prev) => prev.map((s) => (s._id === id ? { ...s, ...patch } : s)));
   }
+
+  // Recap only ever autosaves {title, summary} — never the whole doc (in
+  // particular never `activity`, which is only ever written by sessionsEnd).
+  const autosave = useAutosave({
+    id: selected?._id ?? null,
+    snapshot: selected && { title: selected.title, summary: selected.summary },
+    onSave: (id, snap) => api.update('sessions', id, snap),
+    onSaved: (id, updated) => patchLocal(id, { updatedAt: updated.updatedAt })
+  });
 
   // Builds a summary from the session's recap material and saves it into the
   // same "Your summary" field the player edits by hand. Uses the built-in
@@ -70,7 +90,7 @@ export default function SessionsView({ reloadToken, focusId, activeSession, onEn
     const sessionId = selected._id;
     const summaryAtStart = selected.summary || '';
     if (summaryAtStart.trim()) {
-      const ok = await confirm('Replace your existing summary with a generated one?', {
+      const ok = await confirmDialog('Replace your existing summary with a generated one?', {
         title: 'Overwrite summary',
         kind: 'warning'
       });
@@ -110,8 +130,8 @@ export default function SessionsView({ reloadToken, focusId, activeSession, onEn
       }
 
       if (!mountedRef.current) return;
-      // If the player typed into the summary box while this (up to a
-      // minute-long) request was in flight, their words win — don't save over
+      // If the player typed into the summary box while this request was in
+      // flight (it can take up to three minutes), their words win — don't save over
       // them. Compare against what the box held when the button was clicked.
       const current = sessionsRef.current.find((s) => s._id === sessionId);
       if ((current ? current.summary || '' : '') !== summaryAtStart) {
@@ -122,7 +142,16 @@ export default function SessionsView({ reloadToken, focusId, activeSession, onEn
       // player may have edited it in the meantime and that must not be clobbered.
       const updated = await api.update('sessions', sessionId, { summary });
       if (!mountedRef.current) return;
-      patchLocal(sessionId, updated);
+      // Copy back only `summary`/`updatedAt` — the whole `updated` doc also
+      // carries `title`, and applying that here would revert a title the
+      // player typed while this request was running.
+      patchLocal(sessionId, { summary: updated.summary, updatedAt: updated.updatedAt });
+      // This save didn't go through the autosave hook, so tell it the
+      // summary field is now clean — otherwise it'd debounce a redundant
+      // re-save of the same value a moment later. Only if the hook is still
+      // bound to this same session (the player may have switched away
+      // while the AI was writing).
+      if (selectedIdRef.current === sessionId) autosave.markSaved({ summary: updated.summary });
       setStatusFor(resultStatus);
       if (resultStatus === 'Written by AI ✓') setTimeout(() => setStatusFor(''), 2500);
     } catch (e) {
@@ -132,24 +161,33 @@ export default function SessionsView({ reloadToken, focusId, activeSession, onEn
     }
   }
 
+  // "Save" is now "save now" — autosave already keeps title/summary persisted.
   async function saveSession() {
     if (!selected) return;
-    setStatus('Saving…');
-    const updated = await api.update('sessions', selected._id, {
-      title: selected.title,
-      summary: selected.summary
-    });
-    patchLocal(selected._id, updated);
-    setStatus('Saved ✓');
-    setTimeout(() => setStatus(''), 1500);
+    await autosave.flush();
+  }
+
+  // A delete error auto-clears after a few seconds — otherwise it permanently
+  // shadows the autosave status line below it (Saving…/Saved ✓), which keeps
+  // working fine underneath even after an unrelated error here.
+  function showError(message) {
+    setStatus(message);
+    setTimeout(() => setStatus((s) => (s === message ? '' : s)), 4000);
   }
 
   async function deleteSession() {
     if (!selected) return;
-    if (!(await confirm(`Delete Session ${selected.number}?`, { title: 'Confirm delete', kind: 'warning' }))) return;
-    await api.remove('sessions', selected._id);
-    setSessions((prev) => prev.filter((s) => s._id !== selected._id));
-    setSelectedId(null);
+    if (!(await confirmDialog(`Delete Session ${selected.number}?`, { title: 'Confirm delete', kind: 'warning' }))) return;
+    autosave.markDeleted(selected._id);
+    try {
+      await api.remove('sessions', selected._id);
+      setSessions((prev) => prev.filter((s) => s._id !== selected._id));
+      setSelectedId(null);
+    } catch (e) {
+      // Delete didn't actually go through — restore autosave for this session.
+      autosave.unmarkDeleted(selected._id);
+      showError(e.message);
+    }
   }
 
   const groups = {};
@@ -205,9 +243,9 @@ export default function SessionsView({ reloadToken, focusId, activeSession, onEn
           <>
             <button className="btn mobile-back" onClick={() => setSelectedId(null)}>← Back</button>
             <div className="editor-toolbar">
-              <span className="status-text">{status}</span>
-              {selected.active && activeSession && (
-                <button className="btn danger" onClick={onEnd}>⏹ End Session</button>
+              <span className="status-text">{status || autosave.status}</span>
+              {selected.active && (
+                <button className="btn danger" onClick={() => onEnd(selected._id)}>⏹ End Session</button>
               )}
               <button className="btn primary" onClick={saveSession}>Save</button>
               <button className="btn danger" onClick={deleteSession}>Delete</button>

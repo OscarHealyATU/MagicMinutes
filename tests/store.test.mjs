@@ -65,6 +65,25 @@ function makeClock(startIso = '2026-01-01T00:00:00.000Z', stepMs = 1000) {
   };
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Wraps a driver so every select/execute completes after random jitter,
+// simulating the IPC latency a real Tauri SQL plugin call has — without it,
+// a race between two calls that both complete instantly can't actually be
+// observed. Same trick as the scratchpad review's race.mjs.
+function delayed(driver, ms = 5) {
+  return {
+    select: async (...a) => {
+      await sleep(Math.random() * ms);
+      return driver.select(...a);
+    },
+    execute: async (...a) => {
+      await sleep(Math.random() * ms);
+      return driver.execute(...a);
+    }
+  };
+}
+
 let passed = 0;
 let failed = 0;
 
@@ -278,6 +297,45 @@ await test('sessions: number increments after a prior session ended', async () =
   assert.equal(s2.number, 2);
 });
 
+// Regression: numbering used to be "row count + 1", which only works if
+// sessions are never deleted. Deleting one leaves fewer rows than the
+// highest number handed out, so a naive count-based scheme reissues a
+// number that's still on the list.
+await test('sessions: deleting a middle session does not shrink the next number', async () => {
+  const driver = makeFakeDriver();
+  await store.ensureTables(driver);
+  const deps = makeClock();
+
+  const s1 = await store.sessionsStart(driver, deps);
+  await store.sessionsEnd(driver, s1._id, deps);
+  const s2 = await store.sessionsStart(driver, deps);
+  await store.sessionsEnd(driver, s2._id, deps);
+  const s3 = await store.sessionsStart(driver, deps);
+  await store.sessionsEnd(driver, s3._id, deps);
+  assert.equal(s3.number, 3);
+
+  // Delete #2: two rows are left (#1, #3), but #3 is still the highest number
+  // in use. A row-count scheme would compute 2 rows + 1 = 3 and collide.
+  await store.removeDoc(driver, 'sessions', s2._id);
+  const s4 = await store.sessionsStart(driver, deps);
+  assert.equal(s4.number, 4, 'must not recompute from the row count and collide with #3');
+});
+
+// Regression: seeded/imported history can start numbering above the row
+// count too (e.g. campaign history 3-4 imported with no sessions 1-2 on
+// file) — the next number must still be based on the highest one present.
+await test('sessions: numbering above the row count (seeded/imported history) is respected', async () => {
+  const driver = makeFakeDriver();
+  await store.ensureTables(driver);
+  const deps = makeClock();
+
+  await store.upsertDoc(driver, 'sessions', { _id: 'a', number: 3, active: false }, deps);
+  await store.upsertDoc(driver, 'sessions', { _id: 'b', number: 4, active: false }, deps);
+
+  const started = await store.sessionsStart(driver, deps);
+  assert.equal(started.number, 5, 'two rows must not mean "next is 3"');
+});
+
 await test('sessions: end() recap classifies created vs updated and extracts names per collection', async () => {
   const driver = makeFakeDriver();
   await store.ensureTables(driver);
@@ -386,6 +444,128 @@ await test('removeDoc: deletes existing doc, throws Not found for missing id', a
   assert.deepEqual(await store.removeDoc(driver, 'notes', note._id), { ok: true });
   assert.equal(await store.getDoc(driver, 'notes', note._id), null);
   await assert.rejects(() => store.removeDoc(driver, 'notes', note._id), /Not found/);
+});
+
+// ---------- layout-only writes (touch: false) ----------
+
+await test('applyPatch/updateDoc: touch:false updates fields without bumping updatedAt', async () => {
+  const driver = makeFakeDriver();
+  await store.ensureTables(driver);
+  const deps = makeClock();
+
+  const place = await store.createDoc(driver, 'places', { name: 'Cairne' }, deps);
+  const moved = await store.updateDoc(driver, 'places', place._id, { mapX: 40, mapY: 80 }, { ...deps, touch: false });
+  assert.equal(moved.mapX, 40);
+  assert.equal(moved.mapY, 80);
+  assert.equal(moved.updatedAt, place.updatedAt, 'a position-only write must not bump updatedAt');
+
+  // A normal (content) write still bumps it as before.
+  const edited = await store.updateDoc(driver, 'places', place._id, { name: 'Cairne (renamed)' }, deps);
+  assert.notEqual(edited.updatedAt, moved.updatedAt);
+});
+
+await test('buildActivity: a layout-only move does not show up as "edited" in the recap', async () => {
+  const driver = makeFakeDriver();
+  await store.ensureTables(driver);
+  const deps = makeClock();
+
+  // The place exists before the session starts...
+  const place = await store.createDoc(driver, 'places', { name: 'Cairne' }, deps);
+  const session = await store.sessionsStart(driver, deps);
+  // ...and during the session only gets dragged around (Auto-arrange, a
+  // drag-and-drop), never actually edited.
+  await store.updateDoc(driver, 'places', place._id, { mapX: 120, mapY: 40 }, { ...deps, touch: false });
+
+  const ended = await store.sessionsEnd(driver, session._id, deps);
+  assert.equal(
+    ended.activity.filter((a) => a.kind === 'place').length,
+    0,
+    'a drag/auto-arrange-only move must not count as an edit in the session recap'
+  );
+});
+
+// ---------- write serialization ----------
+
+await test('updateDoc: concurrent writes to the same doc apply in call order, not I/O completion order', async () => {
+  const driver = delayed(makeFakeDriver());
+  await store.ensureTables(driver);
+  const deps = makeClock();
+
+  // Mirrors the GroupsPanel name field, which saves on every keystroke —
+  // under real IPC latency, whichever request happens to land last would
+  // otherwise "win" regardless of when it was actually sent.
+  const group = await store.createDoc(driver, 'groups', { name: '' }, deps);
+  const typed = ['A', 'As', 'Ash', 'Ash ', 'Ash G'];
+  await Promise.all(typed.map((name) => store.updateDoc(driver, 'groups', group._id, { name }, deps)));
+
+  const final = await store.getDoc(driver, 'groups', group._id);
+  assert.equal(final.name, 'Ash G', 'the last call made must win, regardless of which I/O finished first');
+});
+
+await test('removeDoc: a delete queued after an in-flight update for the same doc does not get clobbered back into existing', async () => {
+  const driver = delayed(makeFakeDriver());
+  await store.ensureTables(driver);
+  const deps = makeClock();
+
+  const note = await store.createDoc(driver, 'notes', { title: 'Draft' }, deps);
+  const [, removeResult] = await Promise.all([
+    store.updateDoc(driver, 'notes', note._id, { title: 'Draft (autosaved)' }, deps),
+    store.removeDoc(driver, 'notes', note._id)
+  ]);
+  assert.deepEqual(removeResult, { ok: true });
+  assert.equal(await store.getDoc(driver, 'notes', note._id), null, 'the doc must end up deleted, not resurrected');
+});
+
+// ---------- sessionsStart concurrency (double-click Start Session) ----------
+
+await test('sessionsStart: concurrent calls under IPC-like latency create exactly one active session', async () => {
+  const driver = delayed(makeFakeDriver());
+  await store.ensureTables(driver);
+  const deps = makeClock();
+
+  const [a, b, c] = await Promise.all([
+    store.sessionsStart(driver, deps),
+    store.sessionsStart(driver, deps),
+    store.sessionsStart(driver, deps)
+  ]);
+  assert.equal(a._id, b._id, 'a double (or triple) click must not create two sessions');
+  assert.equal(b._id, c._id);
+
+  const all = await store.listDocs(driver, 'sessions');
+  assert.equal(all.length, 1);
+  assert.equal(all.filter((s) => s.active).length, 1);
+  assert.equal(all[0].number, 1);
+});
+
+// ---------- sessionsActive: reconciling orphaned LIVE sessions ----------
+
+await test('sessionsActive: adopts the most recent of several LIVE sessions and ends the rest (no orphan stays LIVE forever)', async () => {
+  const driver = makeFakeDriver();
+  await store.ensureTables(driver);
+  const deps = makeClock();
+
+  // Simulates a bad merge/import that brought in two "active" sessions.
+  await store.upsertDoc(
+    driver,
+    'sessions',
+    { _id: 'old', number: 1, active: true, startedAt: '2026-01-01T00:00:00.000Z' },
+    deps
+  );
+  await store.upsertDoc(
+    driver,
+    'sessions',
+    { _id: 'new', number: 2, active: true, startedAt: '2026-01-02T00:00:00.000Z' },
+    deps
+  );
+
+  const active = await store.sessionsActive(driver, deps);
+  assert.equal(active._id, 'new', 'the most recently started session should be adopted');
+
+  const all = await store.listDocs(driver, 'sessions');
+  assert.equal(all.filter((s) => s.active).length, 1, 'exactly one session must be left LIVE');
+  const closed = all.find((s) => s._id === 'old');
+  assert.equal(closed.active, false);
+  assert.ok(closed.endedAt, 'the orphaned session must get a proper end, not just vanish');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

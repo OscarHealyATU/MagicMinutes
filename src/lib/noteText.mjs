@@ -48,10 +48,20 @@ function noteBlock(note) {
   const lines = ['=== Note ===', `Title: ${oneLine(note.title) || 'Untitled note'}`];
   if (note.category) lines.push(`Category: ${oneLine(note.category)}`);
   if (note.place) lines.push(`Place: ${oneLine(note.place)}`);
-  if (note.tags && note.tags.length) lines.push(`Tags: ${note.tags.map(oneLine).join(', ')}`);
+  if (note.tags && note.tags.length) lines.push(`Tags: ${note.tags.map(oneLine).map(escapeTag).join(', ')}`);
   if (note.pinned) lines.push('Pinned: yes');
   lines.push('');
-  const content = (note.content || '').replace(/\r\n?/g, '\n');
+  // The Unicode line/paragraph separators (U+2028/U+2029, which turn up in
+  // text pasted from web pages and word processors) are invisible line
+  // breaks to a human but not to plain "\n".split(): a line written as
+  // "text" + LS + "=== End note ===" doesn't look like a marker at write
+  // time (it doesn't *start* with one), so it goes out unescaped -- but
+  // parseNotesText's reader also splits on that separator, so it reads
+  // back as a real "=== End note ===" line and cuts the note off early.
+  // Normalising them to "\n" here first means the marker ends up on its
+  // own line here too, where LOOKS_LIKE_MARKER can see it and escape it
+  // like any other marker-shaped line.
+  const content = (note.content || '').replace(/\r\n?/g, '\n').replace(/[\u2028\u2029]/g, '\n');
   for (const line of content.split('\n')) {
     lines.push(LOOKS_LIKE_MARKER.test(line) ? `\\${line}` : line);
   }
@@ -131,7 +141,15 @@ export function parseNotesText(text, { categories = NOTE_CATEGORIES } = {}) {
     // One blank line separates the fields from the text.
     if (j < body.length && body[j].trim() === '') j++;
     const content = body.slice(j).map((line) => (ESCAPED.test(line) ? line.slice(1) : line));
-    while (content.length && content[content.length - 1].trim() === '') content.pop();
+    // An explicit "=== End note ===" line tells us exactly where the note's
+    // own text stops, so any blank lines right before it are part of what
+    // was written and are kept. Without one (a cut-off paste, or the next
+    // note's marker showing up instead), trailing blanks are more likely
+    // padding from an email client than intended content, so those are
+    // still trimmed.
+    if (!ended) {
+      while (content.length && content[content.length - 1].trim() === '') content.pop();
+    }
     note.content = content.join('\n');
 
     const empty = !note.title && note.content === '' && !note.place && !note.tags.length;
@@ -165,8 +183,36 @@ function unquote(line, depth) {
   return depth && out.startsWith(' ') ? out.slice(1) : out;
 }
 
+// A tag written to text form has its own literal backslashes and commas
+// escaped (\\ and \,), so a tag that itself contains a comma — "Skyrise,
+// Upper Ward" as one tag rather than two — survives the round trip instead
+// of silently splitting in two.
+function escapeTag(t) {
+  return String(t).replace(/\\/g, '\\\\').replace(/,/g, '\\,');
+}
+
 function splitTags(value) {
-  return value.split(',').map((t) => t.trim()).filter(Boolean);
+  const parts = [];
+  let cur = '';
+  for (let i = 0; i < value.length; i++) {
+    const c = value[i];
+    // Only the two sequences escapeTag ever writes are unescaped — a
+    // backslash before anything else (",Games" in an old tag like
+    // "C:\Games", written before this escaping existed and so never
+    // escaped) is kept exactly as typed, rather than every backslash being
+    // treated as an escape prefix and silently eating the next character.
+    if (c === '\\' && (value[i + 1] === ',' || value[i + 1] === '\\')) {
+      cur += value[i + 1];
+      i++;
+    } else if (c === ',') {
+      parts.push(cur);
+      cur = '';
+    } else {
+      cur += c;
+    }
+  }
+  parts.push(cur);
+  return parts.map((t) => t.trim()).filter(Boolean);
 }
 
 // A note that came from a file rather than text: keep only the fields a note

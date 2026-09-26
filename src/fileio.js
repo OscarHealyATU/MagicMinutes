@@ -4,8 +4,9 @@
 // input, so Settings can be worked on without the Rust side running.
 
 import { confirm, open, save } from '@tauri-apps/plugin-dialog';
-import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { BaseDirectory, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { appDataDir, join } from '@tauri-apps/api/path';
 
 const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -85,6 +86,21 @@ export async function copyText(text) {
     const ok = document.execCommand('copy');
     area.remove();
     return ok;
+  }
+}
+
+// Writes straight into this app's own data folder — no save dialog, so it can
+// run unattended right before something risky (a Replace import wiping
+// collections a backup would be needed to recover). Returns the path written,
+// or null in a plain browser, where there's no app data folder to write to;
+// the caller decides what "couldn't back up" means to the user there.
+export async function writeAppDataBackup(name, text) {
+  if (!inTauri) return null;
+  await writeTextFile(name, text, { baseDir: BaseDirectory.AppData });
+  try {
+    return await join(await appDataDir(), name);
+  } catch {
+    return name;
   }
 }
 

@@ -13,6 +13,7 @@ import {
   computeGroupHulls,
   describeRelation,
   dispositionFor,
+  dispositionOfNpc,
   labelOf,
   normalizeNpc,
   relationsOf
@@ -125,6 +126,22 @@ await test('computeDepths: chains stack up and cycles terminate', () => {
   // The point is that this returns at all rather than spinning.
   const cycleDepth = computeDepths(cycle, buildRelationEdges(cycle));
   assert.ok(Number.isFinite(cycleDepth.a) && Number.isFinite(cycleDepth.b));
+  // And that it terminates with a small, sane depth — not by looping the
+  // full pass count and leaving both of them dozens of rows down.
+  assert.ok(cycleDepth.a <= 1 && cycleDepth.b <= 1, 'a 2-cycle should settle at depth 0/1, not drift');
+});
+
+await test('computeDepths: a cycle among many NPCs does not push everyone hundreds of rows down', () => {
+  // The reported bug: A is B's boss and B is A's boss among a bigger cast —
+  // without cutting the cycle, every pass bumps both down again, and with 30
+  // NPCs that reached y ≈ 6,500 (depth ≈ 60) instead of staying put.
+  const npcs = [
+    npc('a', { relations: [rel('b', 'boss')] }),
+    npc('b', { relations: [rel('a', 'boss')] }),
+    ...Array.from({ length: 28 }, (_, i) => npc(`extra${i}`))
+  ];
+  const depth = computeDepths(npcs, buildRelationEdges(npcs));
+  assert.ok(depth.a <= 1 && depth.b <= 1, `expected the cycle to be cut, got a=${depth.a} b=${depth.b}`);
 });
 
 // ---------- clustering & layout ----------
@@ -254,6 +271,18 @@ await test('relationsOf: includes relations other NPCs point at this one', () =>
   assert.equal(forAlara[0].incoming, false);
 
   assert.equal(relationsOf(npcs[2], npcs).length, 0);
+});
+
+await test('dispositionOfNpc: the single source of truth, matching what the tree derives from alignment', () => {
+  // A fresh NPC: store defaults are disposition "Unknown" but alignment 0 —
+  // the tree already read alignment (Neutral); the map read the plain field
+  // (Unknown) and showed a different tag for the very same NPC.
+  assert.equal(dispositionOfNpc({ disposition: 'Unknown', alignment: 0 }), 'Neutral');
+  assert.equal(dispositionOfNpc({ disposition: 'Hostile', alignment: 90 }), 'Ally', 'alignment wins when both are set');
+  // A document that predates alignment entirely still falls back sensibly.
+  assert.equal(dispositionOfNpc({ disposition: 'Hostile' }), 'Hostile');
+  assert.equal(dispositionOfNpc({}), 'Unknown');
+  assert.equal(dispositionOfNpc(null), 'Unknown');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

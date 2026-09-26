@@ -20,7 +20,7 @@
   --bg-panel: #041b24;
   --bg-panel-2: #10262e;
   --bg-input: #061014;
-  --border: #485354;
+  --border: #5c6869;
   --text: #e9e2d0;
   --text-dim: #97a3a4;
   --accent: #6d411c;
@@ -49,7 +49,7 @@
   --bg-panel: #fbf7ef;
   --bg-panel-2: #e6ddcb;
   --bg-input: #fffdf8;
-  --border: #bcae97;
+  --border: #8f7d5c;
   --text: #241c14;
   --text-dim: #6a5f4f;
   --accent: #8a5526;
@@ -65,6 +65,60 @@
   --gold: #7a5314;
   --good: #2f6b3a;
   --bad: #a8391a;
+}
+
+/* ---------- Colour-blind mode (Settings → Appearance) ----------
+   The three content palettes a read-only CVD review (Machado 2009 simulation
+   + CIEDE2000) found relied on colour alone: NPC disposition, the map's
+   connection lines, and the characters tree's "level" relation lines
+   (sibling/partner/ally/rival/knows). Same theme.mjs-style pattern: these
+   are plain custom properties, not theme-scoped (the content palette never
+   was), switched by `data-cvd="on"` on <html>. Off is the default in both
+   themes and matches the values above exactly — nothing changes until it's
+   turned on. Every CVD type's worst pair here is ~8+ CIEDE2000 (checked with
+   scratchpad/cvd.mjs); Friendly's contrast against --on-solid is the one
+   fixed point that couldn't also clear 4.5:1 without collapsing back into
+   Hostile under deuteranopia (documented in the task report). */
+:root {
+  --disposition-ally: #3f5e3a;
+  --disposition-friendly: #6d411c;
+  --disposition-neutral: #485354;
+  --disposition-suspicious: #96602e;
+  --disposition-hostile: #70250a;
+  --disposition-unknown: #0f3a5c;
+
+  --line-between: #0f3a5c;
+  --line-near: #1d4a52;
+  --line-route: #6d411c;
+  --line-direction: #96602e;
+  --line-note: #2a3439;
+
+  --rel-sibling: #3f5e3a;
+  --rel-partner: #1d4a52;
+  --rel-ally: #0f3a5c;
+  --rel-rival: #b1441d;
+  --rel-knows: #485354;
+}
+
+:root[data-cvd="on"] {
+  --disposition-ally: #2c7350;
+  --disposition-friendly: #a5671c;
+  --disposition-neutral: #455460;
+  --disposition-suspicious: #8c4bab;
+  --disposition-hostile: #9c3a1f;
+  --disposition-unknown: #0f3a5c;
+
+  --line-between: #123f70;
+  --line-near: #1d7a5a;
+  --line-route: #6d411c;
+  --line-direction: #96602e;
+  --line-note: #4a2a3a;
+
+  --rel-sibling: #529430;
+  --rel-partner: #1d7a80;
+  --rel-ally: #123a70;
+  --rel-rival: #8f2c14;
+  --rel-knows: #5a4a6e;
 }
 
 * {
@@ -86,6 +140,68 @@ body {
 .app {
   display: flex;
   height: 100vh;
+}
+
+/* ---------- Error boundary ---------- */
+
+.error-boundary {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.error-boundary-card {
+  max-width: 480px;
+  background: var(--bg-panel);
+  border: 1px solid var(--danger);
+  border-radius: 14px;
+  padding: 24px 26px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.error-boundary-icon {
+  font-size: 32px;
+  line-height: 1;
+}
+
+.error-boundary-card h2 {
+  margin: 0;
+  font-family: Georgia, serif;
+}
+
+.error-boundary-card p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  text-align: left;
+}
+
+.error-boundary-actions {
+  margin-top: 4px;
+}
+
+.error-boundary-details {
+  margin-top: 8px;
+  text-align: left;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.error-boundary-details pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
 }
 
 /* ---------- Sidebar ---------- */
@@ -112,10 +228,17 @@ body {
   font-size: 28px;
 }
 
+.sidebar-brand-text {
+  min-width: 0;
+}
+
 .brand-title {
   font-family: 'Jim Nightshade', Georgia, serif;
   font-weight: bold;
   font-size: 26px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .brand-sub {
@@ -716,21 +839,6 @@ input:focus, select:focus, textarea:focus {
   overflow: hidden;
 }
 
-.mode-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-dim);
-  padding: 5px 12px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.mode-btn.mode-active {
-  background: var(--accent);
-  color: var(--text);
-  font-weight: 600;
-}
-
 .manual-input {
   flex: 1;
   min-width: 180px;
@@ -757,21 +865,6 @@ input:focus, select:focus, textarea:focus {
 .dice-buttons {
   display: flex;
   gap: 4px;
-}
-
-.die-select {
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  color: var(--text-dim);
-  border-radius: 8px;
-  padding: 6px 10px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.die-select:hover {
-  border-color: var(--accent);
 }
 
 .die-active {
@@ -901,16 +994,6 @@ input:focus, select:focus, textarea:focus {
   pointer-events: none;
 }
 
-.map-npc-label {
-  fill: var(--text-dim);
-  font-size: 11px;
-  font-family: 'Quintessential', 'Segoe UI', system-ui, sans-serif;
-  paint-order: stroke;
-  stroke: var(--bg);
-  stroke-width: 3px;
-  pointer-events: none;
-}
-
 .map-badge {
   cursor: pointer;
 }
@@ -972,17 +1055,6 @@ input:focus, select:focus, textarea:focus {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.map-note-title-label {
-  fill: #c9a06c;
-  font-size: 11px;
-  font-style: italic;
-  font-family: 'Quintessential', 'Segoe UI', system-ui, sans-serif;
-  paint-order: stroke;
-  stroke: var(--bg);
-  stroke-width: 3px;
-  pointer-events: none;
 }
 
 .map-notes-panel {
@@ -1090,6 +1162,22 @@ input:focus, select:focus, textarea:focus {
   border: 1px solid rgba(233, 226, 208, 0.18);
 }
 
+/* The line-type rows use an inline SVG swatch instead (so colour-blind mode
+   can mirror the map's dash patterns), which needs none of the span's
+   background/border box. */
+svg.map-legend-swatch {
+  width: 22px;
+  height: 10px;
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+}
+
+/* Desktop: no toggle, the legend is always shown in full. */
+.map-legend-toggle {
+  display: none;
+}
+
 .map-info {
   position: absolute;
   top: 14px;
@@ -1161,10 +1249,11 @@ input:focus, select:focus, textarea:focus {
 .map-hint {
   position: absolute;
   bottom: 10px;
-  left: 0;
-  right: 0;
+  /* Clear of the legend in the bottom-left corner. */
+  left: 260px;
+  right: 16px;
   text-align: center;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-dim);
   pointer-events: none;
 }
@@ -1506,6 +1595,24 @@ input:focus, select:focus, textarea:focus {
     min-height: 44px;
   }
 
+  /* Bigger touch targets: buttons at the 44px minimum, filter chips tall
+     enough to tap without missing, with a bit more breathing room between them. */
+  .btn {
+    min-height: 44px;
+    padding: 10px 14px;
+  }
+
+  .chip-row {
+    gap: 10px;
+  }
+
+  .chip {
+    min-height: 38px;
+    padding: 8px 14px;
+    display: inline-flex;
+    align-items: center;
+  }
+
   .editor-toolbar {
     flex-wrap: wrap;
   }
@@ -1537,18 +1644,55 @@ input:focus, select:focus, textarea:focus {
   .map-info,
   .map-notes-panel {
     top: auto;
-    bottom: 0;
+    /* Clear of the fixed tab bar (58px) + session strip (~58px) below —
+       same 118px the scrolling content already reserves — so the sheet
+       never sits behind (or gets covered by) the Start Session button. */
+    bottom: 118px;
     left: 0;
     right: 0;
     z-index: 10;
     width: auto;
-    max-height: 40vh;
-    border-radius: 12px 12px 0 0;
-    border-bottom: none;
+    max-height: 32vh;
+    border-radius: 12px;
+    border-bottom: 1px solid var(--border);
   }
 
   .map-info {
     overflow-y: auto;
+  }
+
+  /* Legend: collapsed to a small pill by default, moved up under the
+     toolbar — the bottom-left corner is the full-width "Unplaced notes"
+     sheet's spot, and a bottom-anchored legend would either fight it for
+     space or (collapsed) sit invisibly behind it. */
+  .map-legend {
+    top: 56px;
+    bottom: auto;
+    left: 8px;
+    max-width: 60vw;
+  }
+
+  /* The legend has left the bottom corner, so the hint can use the full width. */
+  .map-hint {
+    left: 8px;
+    right: 8px;
+  }
+
+  .map-legend-toggle {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    color: var(--text);
+    font-weight: 700;
+    font-size: 12px;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  .map-legend:not(.open) .map-legend-row {
+    display: none;
   }
 
   /* ----- Combo blocks: wrap instead of forcing horizontal scroll ----- */
@@ -1751,6 +1895,16 @@ input:focus, select:focus, textarea:focus {
 .char-node-sub {
   fill: var(--text-dim);
   font-size: 10px;
+}
+
+/* Colour-blind mode: a letter on the node itself (A/F/N/S/H/?) so disposition
+   doesn't rely on the fill colour alone. */
+.char-node-tag {
+  text-anchor: middle;
+  fill: var(--on-solid);
+  font-weight: 700;
+  font-size: 11px;
+  pointer-events: none;
 }
 
 .group-hull {
@@ -2297,6 +2451,101 @@ input:focus, select:focus, textarea:focus {
   color: var(--text-dim);
 }
 
+/* Each font-style button previews its own name in its own font, regardless
+   of which style is currently active. The extra `.font-row` qualifier isn't
+   about matching the markup more precisely — it's what keeps these three
+   classes' selector specificity above the UI-chrome rule further down
+   (both are otherwise two classes each, and that rule comes later in the
+   file, so without this every preview would flip to Lexend as soon as any
+   non-fantasy style was picked). Same font stacks the font actually uses
+   (see the data-font rules below), so the preview never shows something
+   other than what picking it gets you. */
+/* No swatch on the font buttons, so stack the name over its hint instead of
+   squeezing the hint into a narrow second column. */
+.font-row .font-option {
+  grid-template-columns: 1fr;
+  align-content: start;
+}
+
+.font-row .font-option-fantasy .font-option-name {
+  font-family: 'Jim Nightshade', Georgia, serif;
+  font-size: 17px;
+}
+
+.font-row .font-option-easy-read .font-option-name {
+  font-family: 'Comic Sans MS', 'Comic Neue', cursive, sans-serif;
+}
+
+.font-row .font-option-opendyslexic .font-option-name {
+  font-family: 'OpenDyslexic', 'Segoe UI', system-ui, sans-serif;
+}
+
+/* ---------- Appearance preview (Settings → Appearance) ----------
+   Reuses the map/tree SVGs' own classes throughout (.map-zone-fill,
+   .map-station-label, .char-node, .relation-edge, …) so this can only ever
+   show what those pages actually look like — nothing here is a separate copy
+   of their colours or fonts. Only the layout/sizing below is new. */
+.appearance-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 12px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.preview-map-svg,
+.preview-tree-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.preview-map-svg {
+  max-height: 220px;
+}
+
+.preview-tree-svg {
+  max-height: 130px;
+}
+
+.preview-map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.preview-relation-legend-label {
+  fill: var(--text-dim);
+  font-size: 10px;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+.preview-demo-heading {
+  margin: 4px 0 0;
+  font-size: 16px;
+}
+
+.preview-demo-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+@media (max-width: 700px) {
+  .appearance-preview {
+    padding: 8px;
+  }
+}
+
 .import-modes {
   display: flex;
   flex-direction: column;
@@ -2449,21 +2698,23 @@ input:focus, select:focus, textarea:focus {
 
 .map-list-note {
   fill: var(--gold);
-  font-size: 11px;
+  font-size: 12.5px;
+  letter-spacing: 0.2px;
   font-style: italic;
   font-family: 'Quintessential', 'Segoe UI', system-ui, sans-serif;
   paint-order: stroke;
   stroke: var(--bg);
-  stroke-width: 3px;
+  stroke-width: 4px;
 }
 
 .map-list-npc {
   fill: var(--text-dim);
-  font-size: 11px;
+  font-size: 12.5px;
+  letter-spacing: 0.2px;
   font-family: 'Quintessential', 'Segoe UI', system-ui, sans-serif;
   paint-order: stroke;
   stroke: var(--bg);
-  stroke-width: 3px;
+  stroke-width: 4px;
 }
 
 .map-list-npc-dot {
@@ -2473,11 +2724,12 @@ input:focus, select:focus, textarea:focus {
 
 .map-list-more {
   fill: var(--text-dim);
-  font-size: 11px;
+  font-size: 12.5px;
+  letter-spacing: 0.2px;
   font-family: 'Quintessential', 'Segoe UI', system-ui, sans-serif;
   paint-order: stroke;
   stroke: var(--bg);
-  stroke-width: 3px;
+  stroke-width: 4px;
 }
 
 /* ---------- Sharing and importing notes ---------- */
@@ -2681,4 +2933,115 @@ input:focus, select:focus, textarea:focus {
 
 .settings-toggle input {
   margin-top: 3px;
+}
+
+/* ---------- Font style (Settings → Appearance) ----------
+   Fantasy is the default and every rule above is untouched by it — nothing
+   here fires unless data-font is one of the other two. Rather than rewire
+   every existing font-family declaration, easy-read/opendyslexic add two
+   custom properties and reassign the selectors that need to move: body text
+   (which most of the app inherits already covers "lists/inputs/notes/map
+   text" for free) plus the handful of explicit Quintessential/Georgia/Jim
+   Nightshade rules, and the UI-chrome controls that would otherwise just
+   inherit the new body font instead of going to Lexend. */
+:root[data-font="easy-read"] {
+  --font-heading: 'Lexend', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Comic Sans MS', 'Comic Neue', cursive, sans-serif;
+}
+
+:root[data-font="opendyslexic"] {
+  --font-heading: 'Lexend', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'OpenDyslexic', 'Segoe UI', system-ui, sans-serif;
+}
+
+:is([data-font="easy-read"], [data-font="opendyslexic"]) body {
+  font-family: var(--font-body);
+}
+
+/* Form controls don't inherit font-family, so list entries built as buttons
+   (note/place/combo cards, party cards, map note rows) would stay in the
+   browser's default font. The class rules below still win for chrome. */
+:is([data-font="easy-read"], [data-font="opendyslexic"]) :is(button, input, select, textarea) {
+  font-family: var(--font-body);
+}
+
+/* Headings, brand and titles (today a mix of Jim Nightshade and plain
+   Georgia) all move to Lexend together. */
+:is([data-font="easy-read"], [data-font="opendyslexic"])
+  :is(
+    .brand-title,
+    .list-header h2,
+    .title-input,
+    .session-number,
+    .dice-total,
+    .total-max,
+    .map-info-title,
+    .reconcile-title,
+    .party-head h2,
+    .group-hull-label,
+    .modal-head h3,
+    .settings-title,
+    .settings-card h3,
+    .map-zone-label,
+    .preview-demo-heading
+  ) {
+  font-family: var(--font-heading);
+}
+
+/* "Map text" (station/NPC/zone labels, the note/NPC mini-lists) plus the one
+   input with its own explicit font — these read as body content, not chrome. */
+:is([data-font="easy-read"], [data-font="opendyslexic"])
+  :is(
+    .map-station-label,
+    .map-badge text,
+    .char-node-label,
+    .char-node-sub,
+    .map-list-note,
+    .map-list-npc,
+    .map-list-more,
+    .dmg-input,
+    .preview-demo-body
+  ) {
+  font-family: var(--font-body);
+}
+
+/* UI chrome: nav labels, buttons, section titles and the other small
+   interactive controls around the app. These currently just inherit the
+   body font, so without this they'd follow body into Comic Sans/OpenDyslexic
+   instead of going to Lexend with the rest of the chrome. */
+:is([data-font="easy-read"], [data-font="opendyslexic"])
+  :is(
+    .nav-btn,
+    .btn,
+    .chip,
+    .block-label,
+    .section-label,
+    .theme-option-label,
+    .theme-option-hint,
+    .text-btn,
+    .block-btn,
+    .sort-flip,
+    .map-zone-link,
+    .palette-btn
+  ) {
+  font-family: var(--font-heading);
+}
+
+/* Comic Sans/OpenDyslexic run wider than Quintessential at the same size —
+   trim tracking a touch on the tightest labels so nothing collides. */
+:is([data-font="easy-read"], [data-font="opendyslexic"]) .nav-label {
+  letter-spacing: -0.2px;
+}
+
+/* Lexend at Jim Nightshade's 26px is much wider — "MagicMinutes" fitting the
+   220px sidebar depends on the script font's condensed strokes, so this
+   needs its own smaller size (the ellipsis rule above is the fallback if a
+   still-longer brand name ever gets typed in). */
+:is([data-font="easy-read"], [data-font="opendyslexic"]) .brand-title {
+  font-size: 18px;
+}
+
+:is([data-font="easy-read"], [data-font="opendyslexic"])
+  :is(.party-name, .party-sub, .party-player, .char-node-label, .char-node-sub) {
+  letter-spacing: -0.2px;
 }

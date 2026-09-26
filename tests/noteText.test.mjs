@@ -144,7 +144,7 @@ await test('mailtoFor: short notes go in the body; long ones get a paste prompt'
 });
 
 await test('text pasted from a web page or word processor (Unicode line separators) parses, and never throws', () => {
-  const text = `Intro line with a separator \n=== Note === Title: Web  Body === End note ===`;
+  const text = `Intro line with a separator\u2028=== Note ===\u2028Title: Web\u2028\u2028Body\u2028=== End note ===`;
   const { notes } = parseNotesText(text);
   assert.equal(notes.length, 1);
   assert.equal(notes[0].title, 'Web');
@@ -182,6 +182,49 @@ await test('cleanNote: keeps only note fields with the right types', () => {
   assert.deepEqual(cleanNote({ title: '  T ', tags: 'a,b', pinned: 1, category: 'QUEST', _id: 5, junk: true }), {
     title: 'T', category: 'Quest', place: '', tags: ['a', 'b'], content: '', pinned: false
   });
+});
+
+await test('a U+2028 line separator followed by marker-looking text no longer truncates the note', () => {
+  // The reader splits on U+2028/U+2029 as well as "\n", but the writer used
+  // to split only on "\n" — so a note containing a literal U+2028 followed by
+  // something that reads as "=== End note ===" went out as one unescaped
+  // line, then came back as two lines on import, the second of which ended
+  // the note early.
+  const tricky = { ...plain, title: 'Truncation bug', content: 'The door said:\u2028=== End note ===\nrest of the note' };
+  const { notes } = parseNotesText(notesToText([tricky]));
+  assert.equal(notes.length, 1);
+  // The marker-looking text is *kept*, literally, as part of the note (like
+  // any other marker-shaped line) \u2014 only the U+2028 itself is normalised to
+  // a real "\n". Losing "=== End note ===" from the note's own words would
+  // be a different bug, not a fix.
+  assert.equal(notes[0].content, 'The door said:\n=== End note ===\nrest of the note');
+});
+
+await test('a tag containing a comma survives the round trip as one tag, not two', () => {
+  const withComma = { ...plain, tags: ['Skyrise, Upper Ward', 'ordinary'] };
+  const { notes } = parseNotesText(notesToText([withComma]));
+  assert.deepEqual(notes[0].tags, ['Skyrise, Upper Ward', 'ordinary']);
+});
+
+await test('a backslash not part of the escaping scheme is left alone (old files never escaped it)', () => {
+  // Written before tag-escaping existed, a tag like "C:\Games" went out
+  // with its backslash untouched. Only "\," and "\\" are the writer's own
+  // escape sequences — any other backslash must survive reading unchanged,
+  // or an old export's tags quietly lose characters on import.
+  const { notes } = parseNotesText('=== Note ===\nTitle: Old file\nTags: C:\\Games, plain\n\nText\n=== End note ===');
+  assert.deepEqual(notes[0].tags, ['C:\\Games', 'plain']);
+});
+
+await test('trailing blank lines are kept when there is an explicit end marker', () => {
+  const withBlankEnd = { ...plain, content: 'Line one\n\n\nLine two\n\n' };
+  const { notes } = parseNotesText(notesToText([withBlankEnd]));
+  assert.equal(notes[0].content, withBlankEnd.content);
+});
+
+await test('trailing blank lines are still trimmed for a note with no end marker', () => {
+  const { notes, warnings } = parseNotesText('=== Note ===\nTitle: Cut off\n\nSome text\n\n\n');
+  assert.equal(notes[0].content, 'Some text');
+  assert.deepEqual(warnings, []);
 });
 
 await test('mailtoFor: line breaks in the body are CRLF', () => {

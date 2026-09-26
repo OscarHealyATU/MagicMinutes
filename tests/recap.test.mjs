@@ -184,6 +184,32 @@ await test('tidyCapitals: sentence starts, "I", and session names get their capi
   assert.equal(tidyCapitals('', material), '');
 });
 
+await test('tidyCapitals: a name containing "$$" is inserted literally, not collapsed by string-replace escapes', () => {
+  // String.prototype.replace treats "$$" in a *string* replacement as an
+  // escape for one literal "$" — using the proper name directly as the
+  // replacement (rather than through a replacer function) silently mangled
+  // any name containing "$$" (or $&, $1, etc.) into something else.
+  const material = { places: [{ name: 'the vault $$ room' }], npcs: [] };
+  const text = 'you found the vault $$ room today.';
+  assert.equal(tidyCapitals(text, material), 'You found The Vault $$ Room today.');
+});
+
+await test('tidyCapitals: common abbreviations are not mistaken for sentence ends', () => {
+  const material = { places: [], npcs: [] };
+  assert.equal(
+    tidyCapitals('it happened at midnight, i.e. nothing unusual took place.', material),
+    'It happened at midnight, i.e. nothing unusual took place.'
+  );
+  assert.equal(
+    tidyCapitals('they brought supplies, e.g. rope and torches, before leaving.', material),
+    'They brought supplies, e.g. rope and torches, before leaving.'
+  );
+  assert.equal(
+    tidyCapitals('the party rested, etc. nothing else happened that night.', material),
+    'The party rested, etc. nothing else happened that night.'
+  );
+});
+
 // ---------- AI preference and prompt size ----------
 
 await test('AI summaries default to on, remember off, and survive a broken storage', () => {
