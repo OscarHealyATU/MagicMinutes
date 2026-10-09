@@ -9,6 +9,7 @@ import {
   writeColorBlind,
   writeFontStyle
 } from './lib/a11y.mjs';
+import { applyTextSizes, readTextSizes, writeTextSizes } from './lib/textSizes.mjs';
 import NotesView from './views/NotesView.jsx';
 import CharactersView from './views/CharactersView.jsx';
 import CombosView from './views/CombosView.jsx';
@@ -54,6 +55,7 @@ export default function App() {
   const [theme, setTheme] = useState(() => readTheme(globalThis.localStorage));
   const [fontStyle, setFontStyle] = useState(() => readFontStyle(globalThis.localStorage));
   const [colorBlind, setColorBlind] = useState(() => readColorBlind(globalThis.localStorage));
+  const [textSizes, setTextSizes] = useState(() => readTextSizes(globalThis.localStorage));
   const [, setTick] = useState(0);
 
   // Kept on <html> so the stylesheet can switch both palettes in one place.
@@ -71,6 +73,11 @@ export default function App() {
     applyColorBlind(colorBlind, document.documentElement);
     writeColorBlind(colorBlind, globalThis.localStorage);
   }, [colorBlind]);
+
+  useEffect(() => {
+    applyTextSizes(textSizes, document.documentElement);
+    writeTextSizes(textSizes, globalThis.localStorage);
+  }, [textSizes]);
 
   function openPlace(id) {
     setFocusPlaceId(id);
@@ -206,7 +213,12 @@ export default function App() {
       <main className="content">
         {tab === 'notes' && <NotesView focusId={focusNoteId} onFocusUsed={() => setFocusNoteId(null)} />}
         {tab === 'characters' && (
-          <CharactersView focusId={focusNpcId} colorBlind={colorBlind} onFocusUsed={() => setFocusNpcId(null)} />
+          <CharactersView
+            focusId={focusNpcId}
+            colorBlind={colorBlind}
+            mapScale={textSizes.map}
+            onFocusUsed={() => setFocusNpcId(null)}
+          />
         )}
         {tab === 'places' && <PlacesView focusId={focusPlaceId} onFocusUsed={() => setFocusPlaceId(null)} />}
         {tab === 'map' && (
@@ -216,6 +228,8 @@ export default function App() {
             onOpenNpc={openNpc}
             colorBlind={colorBlind}
             fontStyle={fontStyle}
+            mapScale={textSizes.map}
+            onOpenSettings={() => setTab('settings')}
           />
         )}
         {tab === 'combos' && <CombosView />}
@@ -227,6 +241,8 @@ export default function App() {
             onFontStyleChange={setFontStyle}
             colorBlind={colorBlind}
             onColorBlindChange={setColorBlind}
+            textSizes={textSizes}
+            onTextSizesChange={setTextSizes}
           />
         )}
         {tab === 'sessions' && (

@@ -111,14 +111,54 @@ export function descendantsOf(id, childrenOf, acc = new Set()) {
   return acc;
 }
 
+// Types that are areas rather than spots. The big ones are always drawn as a
+// full zone, even with nothing inside; the small ones are a full zone only
+// once something is inside them, and a small octagon marker until then (see
+// isAreaStop) — a town reads as "an area" without an empty octagon the size
+// of a city taking over the map.
+export const ZONE_TYPES = ['City', 'Region', 'Wilderness'];
+export const AREA_TYPES = ['Town', 'Village'];
+
 // A place is a "zone" — drawn as an octagon that other things sit
-// inside of — if it contains at least one other place, or if it's a City or
-// Region (so even a childless city still reads as "this is a city" instead
-// of vanishing into a plain stop). Everything else is a stop on the line.
+// inside of — if it contains at least one other place, or if it's one of the
+// big area types (so even a childless city still reads as "this is a city"
+// instead of vanishing into a plain stop). Everything else is a stop on the line.
 export function isZone(place, containment) {
   if (!place) return false;
   const children = (containment && containment.childrenOf[place._id]) || [];
-  return children.length > 0 || place.type === 'City' || place.type === 'Region';
+  return children.length > 0 || ZONE_TYPES.includes(place.type);
+}
+
+// An empty Town or Village: laid out and dragged like any stop, but drawn
+// with a small octagon instead of a dot.
+export function isAreaStop(place, containment) {
+  return !!place && AREA_TYPES.includes(place.type) && !isZone(place, containment);
+}
+
+// Which colour family a zone (or area marker) is drawn in. Wilderness is
+// green so open country reads differently from settled places.
+export function zoneKind(place) {
+  return place && place.type === 'Wilderness' ? 'wild' : 'settled';
+}
+
+// Half the width of an area stop's octagon: 48px across, a bit over a third
+// of an empty full zone's 120px.
+export const AREA_MARKER_R = 24;
+// How far an area stop's name, badges and list move right to clear the
+// marker (a dot's text starts 14px out; this starts 8px past the octagon).
+export const AREA_TEXT_SHIFT = AREA_MARKER_R + 8 - 14;
+
+// A stop's footprint, widened for the octagon marker: the text sits further
+// right, and the reserved box reaches far enough left, up and down to hold
+// the marker itself (see stationBox).
+export function withAreaMarker(fp, r = AREA_MARKER_R) {
+  return {
+    ...fp,
+    right: (fp.right || 0) + (r + 8 - 14),
+    down: Math.max(fp.down || 0, r + 4),
+    left: r + 4,
+    up: r + 4
+  };
 }
 
 function unionRect(a, b) {
@@ -273,10 +313,20 @@ export const OCTAGON_MAX_CUT = 64;
 // with it. Shared here so MapView and the Settings appearance preview (which
 // has to draw zones without duplicating MapView's own logic) can never drift
 // apart on what a zone actually looks like.
-export function zoneFillStyle(depth) {
-  const tintPct = depth % 2 === 0 ? 8 : 22;
+//
+// `kind` picks the colour family (see zoneKind): 'wild' is green, from
+// --zone-wild, and mixed in a little stronger — green at 8% over the map's
+// dark teal background is too close to it to read as a zone at all.
+export function zoneFillStyle(depth, kind = 'settled') {
+  const even = depth % 2 === 0;
+  if (kind === 'wild') {
+    return {
+      fill: `color-mix(in srgb, var(--zone-wild) ${even ? 14 : 28}%, var(--bg))`,
+      stroke: `color-mix(in srgb, var(--zone-wild) 60%, var(--bg))`
+    };
+  }
   return {
-    fill: `color-mix(in srgb, var(--accent-strong) ${tintPct}%, var(--bg))`,
+    fill: `color-mix(in srgb, var(--accent-strong) ${even ? 8 : 22}%, var(--bg))`,
     stroke: `color-mix(in srgb, var(--accent-strong) 55%, var(--bg))`
   };
 }
@@ -431,6 +481,27 @@ export const TEXT_METRICS = {
   marginBottom: 6  // margin added below the last line
 };
 
+// Grows every size-related field of a metrics object by `scale` — used by
+// MapView's metricsForFont to make the reserved layout space track the
+// "Map & tree labels" text-size slider (Settings → Appearance), the same way
+// it already tracks a wider font (FONT_WIDTH_SCALE). `nameCap`/`listIconW`
+// aren't glyph sizes, so nameCap stays put and listIconW (a fixed icon/dot
+// column, not text) is left alone too. Scale 1 returns the same object
+// (not a copy) so the default settings produce byte-identical layout maths.
+export function scaleTextMetrics(metrics, scale) {
+  if (!scale || scale === 1) return metrics;
+  return {
+    ...metrics,
+    nameCharW: metrics.nameCharW * scale,
+    listCharW: metrics.listCharW * scale,
+    nameRowH: metrics.nameRowH * scale,
+    badgeRowH: metrics.badgeRowH * scale,
+    lineH: metrics.lineH * scale,
+    marginRight: metrics.marginRight * scale,
+    marginBottom: metrics.marginBottom * scale
+  };
+}
+
 // How far a station's own rendered text (name, badge row, note/NPC list)
 // reaches to the right of and below its point — so a zone's rect and the
 // drag clamps can leave room for the whole text block, not just the point.
@@ -502,8 +573,13 @@ const byNameThenId = (nameOf) => (a, b) =>
   (a < b ? -1 : a > b ? 1 : 0);
 
 // The box a place's dot plus its text block covers, from its point.
+// The box a stop reserves around its point: 14px left and 16px up for the dot
+// and the top of its name, unless the footprint says its marker is bigger
+// (an area stop's octagon, see withAreaMarker).
 export function stationBox(p, fp) {
-  return { x: p.x - 14, y: p.y - 16, w: ((fp && fp.right) || 0) + 14, h: ((fp && fp.down) || 0) + 16 };
+  const left = (fp && fp.left) ?? 14;
+  const up = (fp && fp.up) ?? 16;
+  return { x: p.x - left, y: p.y - up, w: ((fp && fp.right) || 0) + left, h: ((fp && fp.down) || 0) + up };
 }
 
 // `children`: [{w, h, cornerCut}] in lobe order. `memberFootprints`: the
@@ -692,7 +768,7 @@ export function boxFitsLobes(box, lobes, obstacles = [], margin = 0) {
 // edge of a lobe or an obstacle. The flush ones matter: a band sized to just
 // fit a place has only one height that works, and a grid alone steps over it.
 function candidateSpots(point, fp, lobes, obstacles, margin, step) {
-  const box = stationBox({ x: 0, y: 0 }, fp); // box.x = point.x - 14, box.y = point.y - 16
+  const box = stationBox({ x: 0, y: 0 }, fp); // box.x/box.y are the box's offset from the point
   const bb = lobesBounds(lobes);
   const xs = new Set();
   const ys = new Set();
@@ -732,7 +808,7 @@ export function clampPointToLobes(point, fp, lobes, obstacles = [], margin = 0, 
   if (fits(point)) return point;
   const rectKey = (r) => `${r.x},${r.y},${r.w},${r.h},${r.cut ?? ''}`;
   const key = [
-    point.x, point.y, fp && fp.right, fp && fp.down, margin, step,
+    point.x, point.y, fp && fp.right, fp && fp.down, fp && fp.left, fp && fp.up, margin, step,
     lobes.map(rectKey).join(';'), obstacles.map(rectKey).join(';')
   ].join('|');
   const hit = clampCache.get(key);
@@ -1003,6 +1079,7 @@ export function layoutZones(places, positions, containment, opts = {}) {
       return {
         id,
         name: byId.get(id).name,
+        kind: zoneKind(byId.get(id)),
         depth: depthOf[id] || 0,
         rect: r.rect,
         contentBounds: r.contentBounds,
@@ -1080,8 +1157,9 @@ export function packLayout(places, containment, opts = {}) {
         h = sizeOf[id].h + zoneGap;
       } else {
         const fp = footprintFor(id);
-        w = Math.max(gridX, fp.right + 24);
-        h = Math.max(gridY, fp.down + 16);
+        // An area stop's marker reaches further left and up than a dot does.
+        w = Math.max(gridX, fp.right + 24 + ((fp.left ?? 14) - 14));
+        h = Math.max(gridY, fp.down + 16 + ((fp.up ?? 16) - 16));
       }
       if (col >= perRow) { col = 0; x = 0; y += rowH; rowH = 0; }
       relPos[id] = { x, y };

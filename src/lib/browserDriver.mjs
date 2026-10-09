@@ -53,6 +53,112 @@ export function makeBrowserDriver() {
   };
 }
 
+// ---------- Multi-campaign support for plain-browser (non-Tauri) dev mode ----------
+//
+// Real (Tauri) campaigns are separate SQLite files. Here each campaign gets
+// its own in-memory driver instead, kept in a plain Map — nothing above this
+// module needs to know the difference (src/api.js talks to whichever driver
+// this hands back the same way it talks to a real Database).
+//
+// The one exception is the registry table itself (src/lib/campaigns.mjs):
+// campaign switching ends in `window.location.reload()` (see
+// CampaignSwitcher.jsx), which in a real browser tab is a genuine page
+// reload and would otherwise wipe out the campaign you just switched to
+// before its (empty) view ever got to render. Session storage — unlike a
+// plain module-level Map — survives that reload in the same tab, so the
+// registry driver mirrors its one table there. Actual documents (notes,
+// NPCs, …) still don't survive a reload, exactly as before this feature:
+// only the registry (names/ids/active pointer) needs to.
+const REGISTRY_STORAGE_KEY = 'mm-browser-campaign-registry';
+
+function loadRegistryRows() {
+  try {
+    const raw = globalThis.sessionStorage?.getItem(REGISTRY_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveRegistryRows(rows) {
+  try {
+    globalThis.sessionStorage?.setItem(REGISTRY_STORAGE_KEY, JSON.stringify(rows));
+  } catch {
+    // Private browsing / storage full / no sessionStorage at all — the
+    // registry just won't survive a reload, same as everything else here.
+  }
+}
+
+// Same select/execute shape as makeBrowserDriver, but its one table's rows
+// live in `rows` (backed by sessionStorage) instead of a fresh Map, so this
+// is the one piece of browser-mode state that survives the reload
+// switching campaigns does.
+function makeRegistryDriver() {
+  const rows = loadRegistryRows(); // id -> doc JSON string
+
+  return {
+    async execute(sql, params = []) {
+      let m;
+      if ((m = sql.match(/^CREATE TABLE IF NOT EXISTS (\w+)/i))) {
+        return { rowsAffected: 0 };
+      }
+      if ((m = sql.match(/^INSERT INTO (\w+) \(id, doc\) VALUES/i))) {
+        const [id, doc] = params;
+        rows[id] = doc;
+        saveRegistryRows(rows);
+        return { rowsAffected: 1 };
+      }
+      if ((m = sql.match(/^UPDATE (\w+) SET doc = \$1 WHERE id = \$2/i))) {
+        const [doc, id] = params;
+        rows[id] = doc;
+        saveRegistryRows(rows);
+        return { rowsAffected: 1 };
+      }
+      if ((m = sql.match(/^DELETE FROM (\w+) WHERE id = \$1/i))) {
+        const [id] = params;
+        delete rows[id];
+        saveRegistryRows(rows);
+        return { rowsAffected: 1 };
+      }
+      throw new Error(`registry driver: unhandled execute SQL: ${sql}`);
+    },
+
+    async select(sql) {
+      if (/^SELECT (?:id, )?doc FROM (\w+)/i.test(sql)) {
+        return Object.entries(rows).map(([id, doc]) => ({ id, doc }));
+      }
+      throw new Error(`registry driver: unhandled select SQL: ${sql}`);
+    }
+  };
+}
+
+let registryDriver = null;
+
+// One registry driver per JS lifetime (a real reload makes a new one, which
+// re-reads sessionStorage — see makeRegistryDriver above).
+export function getBrowserRegistryDriver() {
+  if (!registryDriver) registryDriver = makeRegistryDriver();
+  return registryDriver;
+}
+
+const campaignDrivers = new Map(); // campaign id -> in-memory driver
+
+export function hasBrowserCampaignDriver(id) {
+  return campaignDrivers.has(id);
+}
+
+export function getBrowserCampaignDriver(id) {
+  if (!campaignDrivers.has(id)) campaignDrivers.set(id, makeBrowserDriver());
+  return campaignDrivers.get(id);
+}
+
+// Called when a campaign is deleted, so a driver left over from earlier in
+// this same JS lifetime (e.g. created, switched to, switched away from,
+// without an intervening reload) can't be reached again under a reused id.
+export function dropBrowserCampaignDriver(id) {
+  campaignDrivers.delete(id);
+}
+
 // A small but complete sample campaign, so the browser preview (and the README
 // screenshots taken from it) show every feature working: nested zones, each
 // kind of map line, note/NPC badges, an unplaced note, a relation tree with

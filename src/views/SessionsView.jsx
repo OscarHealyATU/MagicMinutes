@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { buildPrompt, collectSessionMaterial, draftSummary, tidyCapitals } from '../lib/recap.mjs';
 import { aiGenerate, aiStatus, noAiMessage, readAiEnabled, readAiGpu } from '../lib/ai.mjs';
 import { useAutosave } from '../lib/useAutosave.js';
+import JournalExport from '../components/JournalExport.jsx';
 
 const KIND_LABELS = {
   note: '📜 Notes',
@@ -29,10 +30,23 @@ function fmtDuration(start, end) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-export default function SessionsView({ reloadToken, focusId, onFocusUsed, onEnd }) {
+export default function SessionsView({ reloadToken, focusId, onFocusUsed, onEnd, journalDefaultTitle }) {
   const [sessions, setSessions] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [status, setStatus] = useState('');
+  // "📖 Export journal" (see JournalExport.jsx) — every recap as a printable
+  // keepsake. `journalDefaultTitle` is a prop rather than a hard-coded
+  // string so a later change wiring this up to the active campaign's own
+  // name only has to pass that in here, not touch the dialog itself.
+  const [journalOpen, setJournalOpen] = useState(false);
+  // The journal's cover defaults to the active campaign's name.
+  const [campaignName, setCampaignName] = useState('');
+  useEffect(() => {
+    api.campaigns
+      .active()
+      .then((c) => setCampaignName(c?.name || ''))
+      .catch(() => {});
+  }, []);
   // Keyed by session id (not just a flag) so switching sessions mid-generate
   // doesn't show session B the "Working…"/result feedback meant for session A.
   const [aiBusyId, setAiBusyId] = useState(null);
@@ -231,6 +245,13 @@ export default function SessionsView({ reloadToken, focusId, onFocusUsed, onEnd 
       <aside className="list-pane">
         <div className="list-header">
           <h2>Sessions</h2>
+          <button
+            className="text-btn"
+            title="Every recap as a printable PDF book"
+            onClick={() => setJournalOpen(true)}
+          >
+            📖 Export journal
+          </button>
         </div>
         <div className="item-list">
           {sessions.length === 0 && (
@@ -364,6 +385,14 @@ export default function SessionsView({ reloadToken, focusId, onFocusUsed, onEnd 
           </>
         )}
       </section>
+
+      {journalOpen && (
+        <JournalExport
+          sessions={sessions}
+          defaultTitle={journalDefaultTitle || campaignName || 'Campaign journal'}
+          onClose={() => setJournalOpen(false)}
+        />
+      )}
     </div>
   );
 }

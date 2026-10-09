@@ -1,10 +1,22 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import AppearancePreview from '../components/AppearancePreview.jsx';
+import { switchCampaign } from '../components/CampaignSwitcher.jsx';
+import { trackSave } from '../lib/pendingSaves.js';
 import { COLLECTIONS } from '../lib/store.mjs';
 import { confirmDialog, openTextFile, saveTextFile, writeAppDataBackup } from '../fileio.js';
 import { THEMES } from '../lib/theme.mjs';
 import { FONT_STYLES } from '../lib/a11y.mjs';
+import {
+  clampTextSize,
+  DEFAULT_TEXT_SIZES,
+  TEXT_SIZE_LABELS,
+  TEXT_SIZE_MAX,
+  TEXT_SIZE_MIN,
+  TEXT_SIZE_ROLES,
+  TEXT_SIZE_STEP
+} from '../lib/textSizes.mjs';
+import ShortcutsModal from '../components/ShortcutsModal.jsx';
 import { aiGpus, aiStatus, readAiEnabled, readAiGpu, writeAiEnabled, writeAiGpu } from '../lib/ai.mjs';
 import {
   buildExport,
@@ -36,13 +48,194 @@ async function readAll() {
   return out;
 }
 
+// Campaigns card — create/switch/rename/delete. Kept as its own component
+// (rather than inline in SettingsView) since it manages a fair bit of state
+// that has nothing to do with the rest of the page. Renaming uses the same
+// "always-editable input, debounced save" pattern as the Characters page's
+// group names (see GroupsPanel in CharacterEditor.jsx) — window.prompt does
+// nothing inside the Tauri webview, so there's no dialog-based alternative.
+function CampaignsCard() {
+  const [list, setList] = useState(null);
+  const [activeId, setActiveId] = useState(null);
+  const [newName, setNewName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
+  // Debounce timers for in-progress renames, keyed by campaign id — same
+  // shape as CharactersView's groupSaveTimers, flushed on unmount below.
+  const renameTimers = useRef({});
+
+  function refresh() {
+    setError('');
+    Promise.all([api.campaigns.list(), api.campaigns.active()])
+      .then(([campaignList, active]) => {
+        setList(campaignList);
+        setActiveId(active._id);
+      })
+      .catch((e) => setError(e.message));
+  }
+
+  useEffect(refresh, []);
+  // Sends any rename still waiting on its debounce straight away. Called on
+  // unmount, and before switching or creating a campaign — both reload the
+  // window, which would otherwise throw a just-typed name away.
+  function flushRenames() {
+    for (const [id, t] of Object.entries(renameTimers.current)) {
+      clearTimeout(t.timer);
+      delete renameTimers.current[id];
+      trackSave(api.campaigns.rename(id, t.name)).catch(() => {});
+    }
+  }
+
+  useEffect(() => flushRenames, []);
+
+  function renameLocal(id, name) {
+    setList((prev) => prev.map((c) => (c._id === id ? { ...c, name } : c)));
+    const pending = renameTimers.current[id];
+    if (pending) clearTimeout(pending.timer);
+    const timer = setTimeout(() => {
+      delete renameTimers.current[id];
+      trackSave(api.campaigns.rename(id, name)).catch((e) => setError(e.message));
+    }, 500);
+    renameTimers.current[id] = { timer, name };
+  }
+
+  async function create() {
+    if (!newName.trim() || busy) return;
+    setError('');
+    setBusy(true);
+    try {
+      flushRenames();
+      const created = await api.campaigns.create(newName);
+      setNewName('');
+      // switchCampaign reloads the page once it's done, so there's no
+      // meaningful "after" here — see CampaignSwitcher.jsx.
+      await switchCampaign(created._id);
+    } catch (e) {
+      setError(e.message);
+      setBusy(false);
+    }
+  }
+
+  async function switchTo(id) {
+    if (busy) return;
+    setError('');
+    setBusy(true);
+    try {
+      flushRenames();
+      await switchCampaign(id);
+    } catch (e) {
+      setError(e.message);
+      setBusy(false);
+    }
+  }
+
+  async function del(id, name) {
+    const ok = await confirmDialog(
+      `Permanently delete the campaign "${name}"?\n\nA backup is written automatically first, but once this finishes "${name}" is gone from MagicMinutes for good — this can't be undone from here.`,
+      { title: 'Delete campaign', kind: 'warning' }
+    );
+    if (!ok) return;
+    setError('');
+    setStatus('');
+    setBusy(true);
+    try {
+      const result = await api.campaigns.remove(id);
+      if (!result.fileRemoved && result.filePath) {
+        setError(
+          `Removed "${name}" from the list, but its file couldn't be deleted automatically (${result.fileError}). Delete it yourself: ${result.filePath}`
+        );
+      } else {
+        setStatus(
+          result.backedUp
+            ? `Deleted "${name}". A backup was saved automatically first.`
+            : `Removed "${name}" from the list.`
+        );
+      }
+      refresh();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="settings-card campaigns-card">
+      <h3>Campaigns</h3>
+      <p className="settings-help">
+        Each campaign is its own separate save file — switch here or from the dropdown on the Map
+        page. A new campaign starts empty; bring in a backup for it with Import, below.
+      </p>
+
+      {!list ? (
+        <p className="settings-help">Loading…</p>
+      ) : (
+        <div className="campaigns-list">
+          {list.map((c) => (
+            <div key={c._id} className={`campaign-row ${c._id === activeId ? 'active' : ''}`}>
+              <input
+                value={c.name}
+                placeholder="Campaign name"
+                disabled={busy}
+                onChange={(e) => renameLocal(c._id, e.target.value)}
+              />
+              {c._id === activeId ? (
+                <span className="badge subtle">Current</span>
+              ) : (
+                <button className="btn" disabled={busy} onClick={() => switchTo(c._id)}>
+                  Switch
+                </button>
+              )}
+              <button
+                className="btn danger"
+                disabled={busy || c._id === activeId || c._id === 'default'}
+                title={
+                  c._id === 'default'
+                    ? "The default campaign holds the registry and can't be deleted."
+                    : c._id === activeId
+                      ? 'Switch to a different campaign before deleting this one.'
+                      : 'Delete this campaign'
+                }
+                onClick={() => del(c._id, c.name)}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="campaign-new-row">
+        <input
+          value={newName}
+          placeholder="New campaign name…"
+          disabled={busy}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') create();
+          }}
+        />
+        <button className="btn primary" disabled={busy || !newName.trim()} onClick={create}>
+          + New campaign…
+        </button>
+      </div>
+
+      {status && <div className="settings-status">{status}</div>}
+      {error && <div className="settings-error">⚠ {error}</div>}
+    </section>
+  );
+}
+
 export default function SettingsView({
   theme,
   onThemeChange,
   fontStyle,
   onFontStyleChange,
   colorBlind,
-  onColorBlindChange
+  onColorBlindChange,
+  textSizes,
+  onTextSizesChange
 }) {
   const [counts, setCounts] = useState(null);
   const [status, setStatus] = useState('');
@@ -53,6 +246,12 @@ export default function SettingsView({
   const [aiOn, setAiOn] = useState(() => readAiEnabled(globalThis.localStorage));
   const [gpuOn, setGpuOn] = useState(() => readAiGpu(globalThis.localStorage));
   const [gpus, setGpus] = useState(null); // null while still looking
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const shortcutsBtnRef = useRef(null);
+
+  function setTextSize(role, value) {
+    onTextSizesChange({ ...textSizes, [role]: clampTextSize(value) });
+  }
 
   function refreshCounts() {
     readAll()
@@ -199,6 +398,8 @@ export default function SettingsView({
       <div className="settings-inner">
         <h2 className="settings-title">Settings</h2>
 
+        <CampaignsCard />
+
         <section className="settings-card">
           <h3>Appearance</h3>
           <p className="settings-help">
@@ -258,7 +459,54 @@ export default function SettingsView({
             </span>
           </label>
 
+          <div className="section-label">Text size</div>
+          <p className="settings-help">
+            Five separate sliders — the map and characters tree can be sized on their own from
+            everything else, so growing station labels doesn't also blow up every button.
+          </p>
+          <div className="textsize-rows">
+            {TEXT_SIZE_ROLES.map((role) => {
+              const info = TEXT_SIZE_LABELS[role];
+              return (
+                <label key={role} className="textsize-row">
+                  <span className="textsize-row-label">
+                    <strong>{info.label}</strong>
+                    <span className="settings-help"> {info.hint}</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={TEXT_SIZE_MIN}
+                    max={TEXT_SIZE_MAX}
+                    step={TEXT_SIZE_STEP}
+                    value={textSizes[role]}
+                    aria-label={`${info.label} size`}
+                    onChange={(e) => setTextSize(role, e.target.value)}
+                  />
+                  <span className="textsize-value">{Math.round(textSizes[role] * 100)}%</span>
+                </label>
+              );
+            })}
+          </div>
+          <div className="settings-actions">
+            <button className="btn" onClick={() => onTextSizesChange(DEFAULT_TEXT_SIZES)}>
+              Reset text sizes
+            </button>
+          </div>
+
           <AppearancePreview colorBlind={colorBlind} />
+        </section>
+
+        <section className="settings-card">
+          <h3>Keyboard shortcuts</h3>
+          <p className="settings-help">Everything you can do from the keyboard, in one place.</p>
+          <div className="settings-actions">
+            <button className="btn" ref={shortcutsBtnRef} onClick={() => setShortcutsOpen(true)}>
+              ⌨ Keyboard shortcuts
+            </button>
+          </div>
+          {shortcutsOpen && (
+            <ShortcutsModal onClose={() => setShortcutsOpen(false)} returnFocusRef={shortcutsBtnRef} />
+          )}
         </section>
 
         <section className="settings-card">
@@ -393,10 +641,12 @@ export default function SettingsView({
         <section className="settings-card">
           <h3>Where your data lives</h3>
           <p className="settings-help">
-            On Windows: <code>%APPDATA%\com.oscar.ttrpgmap\ttrpgmap.db</code>
+            On Windows, in <code>%APPDATA%\com.oscar.ttrpgmap\</code>. Your first campaign is{' '}
+            <code>ttrpgmap.db</code>; each campaign you add is its own{' '}
+            <code>campaign-….db</code> file in the same folder.
           </p>
           <p className="settings-help">
-            Copying that file is the other way to back up or move your campaign — do it while
+            Copying those files is the other way to back up or move your campaigns — do it while
             the app is closed, or the copy can miss recent changes.
           </p>
         </section>
