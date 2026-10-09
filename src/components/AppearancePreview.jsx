@@ -173,6 +173,7 @@ export default function AppearancePreview({ colorBlind }) {
         Half-sunk in Greywater Marsh, it rings on its own before a storm — nobody's found who (or
         what) rings it.
       </p>
+      <p className="settings-help">Session 14 · last updated 2 days ago</p>
     </div>
   );
 }

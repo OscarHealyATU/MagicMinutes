@@ -372,7 +372,11 @@ export function computeCharacterLayout(rawNpcs, rawGroups = []) {
 
 // Boxes are drawn from wherever the members actually ended up, so dragging a
 // member out simply stretches the box rather than orphaning them.
-export function computeGroupHulls(positions, rawNpcs, groups) {
+// `titleSpace` defaults to HULL_TITLE_SPACE but takes an override so
+// CharactersView can grow it with the "Map & tree labels" text-size slider —
+// a bigger group-hull-label needs more headroom above the hull, or its own
+// text would spill above the box.
+export function computeGroupHulls(positions, rawNpcs, groups, titleSpace = HULL_TITLE_SPACE) {
   const npcs = rawNpcs.map(normalizeNpc);
   const hulls = [];
   for (const group of groups) {
@@ -381,7 +385,7 @@ export function computeGroupHulls(positions, rawNpcs, groups) {
     const xs = members.map((n) => positions[n._id].x);
     const ys = members.map((n) => positions[n._id].y);
     const x = Math.min(...xs) - HULL_PAD;
-    const y = Math.min(...ys) - HULL_PAD - HULL_TITLE_SPACE;
+    const y = Math.min(...ys) - HULL_PAD - titleSpace;
     hulls.push({
       _id: group._id,
       name: group.name,

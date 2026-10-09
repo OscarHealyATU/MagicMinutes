@@ -24,6 +24,7 @@
 // server doc back can revert something typed while the request was in
 // flight.
 import { useEffect, useRef, useState } from 'react';
+import { trackSave } from './pendingSaves.js';
 
 function sameFields(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
@@ -89,7 +90,8 @@ export function useAutosave({ id, snapshot, onSave, onSaved, delay = 600 }) {
   async function save(flushId, current) {
     setStatus('Saving…');
     try {
-      const updated = await onSaveRef.current(flushId, current);
+      // Tracked so a campaign switch waits for it before reloading.
+      const updated = await trackSave(onSaveRef.current(flushId, current));
       if (deletedRef.current.has(flushId)) return; // deleted while the save was in flight
       retryCountRef.current = 0;
       // After a switch the baseline belongs to the newly opened document;

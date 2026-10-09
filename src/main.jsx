@@ -4,6 +4,7 @@ import App from './App.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { applyTheme, readTheme } from './lib/theme.mjs';
 import { applyColorBlind, applyFontStyle, readColorBlind, readFontStyle } from './lib/a11y.mjs';
+import { applyTextSizes, readTextSizes } from './lib/textSizes.mjs';
 // These three (Comic Neue, Lexend, OpenDyslexic) are self-hosted through
 // @fontsource, whose own licence files ship inside each package — nothing
 // extra to keep here for them. The app's other two fonts, Jim Nightshade and
@@ -24,6 +25,7 @@ import './styles.css';
 applyTheme(readTheme(globalThis.localStorage), document.documentElement);
 applyFontStyle(readFontStyle(globalThis.localStorage), document.documentElement);
 applyColorBlind(readColorBlind(globalThis.localStorage), document.documentElement);
+applyTextSizes(readTextSizes(globalThis.localStorage), document.documentElement);
 
 createRoot(document.getElementById('root')).render(
   <ErrorBoundary>

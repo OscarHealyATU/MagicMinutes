@@ -12,7 +12,7 @@
     "setup:ai": "node scripts/setup-ai.mjs",
     "build:standard": "node scripts/build.mjs standard",
     "build:ai": "node scripts/build.mjs ai",
-    "test": "node tests/store.test.mjs && node tests/characters.test.mjs && node tests/mapZones.test.mjs && node tests/recap.test.mjs && node tests/transfer.test.mjs && node tests/noteText.test.mjs && node tests/a11y.test.mjs"
+    "test": "node tests/store.test.mjs && node tests/characters.test.mjs && node tests/mapZones.test.mjs && node tests/recap.test.mjs && node tests/transfer.test.mjs && node tests/noteText.test.mjs && node tests/a11y.test.mjs && node tests/journal.test.mjs && node tests/campaigns.test.mjs && node tests/textSizes.test.mjs && node tests/pendingSaves.test.mjs"
   },
   "dependencies": {
     "@fontsource/comic-neue": "^5.3.0",

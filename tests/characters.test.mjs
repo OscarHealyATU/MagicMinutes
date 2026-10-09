@@ -14,6 +14,7 @@ import {
   describeRelation,
   dispositionFor,
   dispositionOfNpc,
+  HULL_TITLE_SPACE,
   labelOf,
   normalizeNpc,
   relationsOf
@@ -245,6 +246,26 @@ await test('computeGroupHulls: boxes wrap their members and skip empty groups', 
   assert.ok(hull.x < 0 && hull.y < 0, 'box is padded outside the members');
   assert.ok(hull.x + hull.w > 200 && hull.y + hull.h > 100);
   assert.ok(hull.x + hull.w < 900, 'the ungrouped NPC is left outside');
+});
+
+await test('computeGroupHulls: titleSpace defaults to HULL_TITLE_SPACE, and a bigger override grows headroom above the hull', () => {
+  const npcs = [npc('a', { groupId: 'g' }), npc('b', { groupId: 'g' })].map(normalizeNpc);
+  const groups = [{ _id: 'g', name: 'Gang', color: '#70250a' }];
+  const pos = { a: { x: 0, y: 0 }, b: { x: 200, y: 100 } };
+
+  const atDefault = computeGroupHulls(pos, npcs, groups);
+  const explicitDefault = computeGroupHulls(pos, npcs, groups, HULL_TITLE_SPACE);
+  assert.deepEqual(atDefault[0], explicitDefault[0], 'omitting titleSpace matches passing HULL_TITLE_SPACE explicitly');
+
+  // Settings → Appearance's "Map & tree labels" slider passes a bigger
+  // titleSpace so a larger group-hull-label doesn't spill above the box —
+  // that should only move/grow the box upward, not touch its other edges.
+  const bigger = computeGroupHulls(pos, npcs, groups, HULL_TITLE_SPACE * 1.5)[0];
+  assert.ok(bigger.y < atDefault[0].y, 'more title space pushes the top edge further up');
+  assert.equal(bigger.x, atDefault[0].x);
+  assert.equal(bigger.w, atDefault[0].w);
+  assert.equal(bigger.x + bigger.w, atDefault[0].x + atDefault[0].w);
+  assert.equal(bigger.y + bigger.h, atDefault[0].y + atDefault[0].h, 'bottom edge is unaffected by title space');
 });
 
 await test('describeRelation: reads as a sentence, with the note appended', () => {

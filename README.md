@@ -96,7 +96,9 @@ it shows how places connect, not exact distances.
 | **Small dot** with a name | A place (a "station"). |
 | **Larger dot with a thick ring** | An *interchange*: a place on two or more lines. |
 | **Coloured line** between places | A connection you wrote in a place's location blocks. The colour is the block type: **On the route**, **Near**, **Between**, **Direction** or **Note**. The legend in the bottom-left lists the ones your map uses. |
-| **Tinted octagon** with a name at the top | A *zone*: a place that other places sit inside — a region, a city, a castle. Made with **Inside** or **Contains** blocks. Zones nest, and deeper zones are shaded darker. A zone is always a regular octagon: it grows evenly to fit what's inside it. |
+| **Tinted octagon** with a name at the top | A *zone*: an area rather than a single spot. Any place becomes a zone once another place is **Inside** it (or it **Contains** one): a castle, an inn, anything. A **City**, **Region** or **Wilderness** is a zone even when empty. Zones nest, and each level alternates between two shades. A zone is always a regular octagon: it grows evenly to fit what's inside it. |
+| **Green octagon** | A **Wilderness** zone: open country, shown in green so it reads differently from settled places. |
+| **Small octagon** in place of a dot | An empty **Town** or **Village**. It's still an area, so it gets a small zone shape instead of a dot, with its name beside it. Put a place inside it and it grows into a full zone. |
 | **Joined octagons** | A zone holding one, two or three smaller zones. Each smaller zone sits in the middle of its own octagon, in alphabetical order: side by side for two, an L shape for three. The zone's own places sit in the band around them. With four or more smaller zones it's one big octagon again. |
 | 📜 **3** badge | Three notes mention this place. |
 | 🧙 **2** badge | Two NPCs have this place in their **Location**. |
@@ -112,7 +114,9 @@ it shows how places connect, not exact distances.
 |---|---|
 | **👥 NPCs** | Show or hide NPC badges and names. |
 | **📜 Notes** | Show or hide note badges, titles and the Unplaced notes panel. |
+| **Campaign dropdown** | Switch to another campaign, or pick **Manage campaigns…** to add, rename or delete them in Settings. |
 | **Auto-arrange** | Tidy the whole map into a neat layout, zones included. It replaces any positions you dragged by hand. |
+| **🔍**, or **Ctrl F** | Find a place or zone by name. Pick one (arrow keys and Enter work) and the map centres on it and pulses it. |
 | **Click a place or zone** | Opens its info card: type, connections, what it's inside or contains, every note and NPC there, and its description. Click a note or NPC to jump to it, or **Open in Places** to edit the place. |
 | **Drag a place** | Move it. Places inside a zone stay inside that zone. |
 | **Drag a zone** by its name or edge | Move it, along with everything inside it. A zone inside joined octagons moves the whole outer zone. |
@@ -325,16 +329,29 @@ session a title and write **your summary**: big moments, cliffhangers, plans for
 It asks before replacing a summary you've already written. While it's writing, the summary
 box shows the text as it arrives; it becomes editable again as soon as it's finished.
 
+**📖 Export journal** turns your recaps into a printable book: a cover, a contents page,
+and each session on its own page. Choose all sessions or a range, and whether to include
+dates and what changed each session. **Print / Save as PDF** opens the Windows print
+window; pick **Microsoft Print to PDF** to save a file, or a printer to print it. It uses
+your font style, so it prints in OpenDyslexic if that's what you read in.
+
 ---
 
 ## Settings ⚙️
 
 ![Settings in the light theme](docs/screenshots/settings-light.png)
 
+- **Campaigns:** keep several campaigns, each with its own notes, map, characters and
+  sessions. Add one with **+ New campaign…** (it starts empty), rename one by typing in
+  its box, and **Switch** between them here or from the dropdown on the Map. Deleting a
+  campaign saves a backup of it first. Your first campaign can be renamed but not deleted.
 - **Appearance:** switch between **Dark** (easy on the eyes at the table) and **Light**
-  (better in a bright room). It applies everywhere and is remembered.
-- **Backup & transfer:** export and import your campaign — see below.
-- **Where your data lives:** the location of your campaign file on this computer.
+  (better in a bright room), pick a **font style**, and turn on **colour-blind mode**.
+  Five **text size** sliders (body text, headings, buttons and menus, map and tree labels,
+  small print) each go from 80% to 150%. A live preview shows what every option changes.
+- **Keyboard shortcuts:** opens a list of every shortcut in the app.
+- **Backup & transfer:** export and import the campaign you're in — see below.
+- **Where your data lives:** the location of your campaign files on this computer.
 
 ---
 
@@ -416,14 +433,17 @@ and look at the file.
 
 ### Where the file lives
 
-On Windows your campaign is stored at:
+On Windows your campaigns are stored in:
 
 ```text
-%APPDATA%\com.oscar.ttrpgmap\ttrpgmap.db
+%APPDATA%\com.oscar.ttrpgmap\
 ```
 
-Uninstalling MagicMinutes **keeps** this file unless you tick the option to delete app
-data, so reinstalling brings your campaign straight back.
+Your first campaign is `ttrpgmap.db`. Each campaign you add is its own `campaign-….db`
+file beside it.
+
+Uninstalling MagicMinutes **keeps** these files unless you tick the option to delete app
+data, so reinstalling brings your campaigns straight back.
 
 ---
 

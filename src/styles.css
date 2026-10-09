@@ -1,3 +1,25 @@
+/* ---------- Text size (Settings → Appearance → Text size) ----------
+   Every `font-size` below is `calc(<base>px * var(--ts-<role>, 1))`, where
+   <role> is one of five multipliers textSizes.mjs writes onto <html> as
+   --ts-body/--ts-headings/--ts-ui/--ts-map/--ts-small (see main.jsx/App.jsx
+   for where they're applied, and AppearancePreview.jsx for a live sample of
+   all five). The `, 1` fallback means a page that somehow renders before
+   that happens still gets today's sizes, not 0. Roughly:
+     --ts-body     note content, descriptions, list entries, form inputs,
+                    recap summaries, the main reading text.
+     --ts-headings  page titles, card headings (h2/h3), the brand, title inputs.
+     --ts-ui        nav labels/hints, buttons, chips, tabs, toolbar controls.
+     --ts-map       SVG text on the Map and the Characters tree — station/
+                    zone labels, note/NPC mini-lists, badges, node/group/edge
+                    labels (see mapZones.mjs's scaleTextMetrics and
+                    characters.mjs's HULL_TITLE_SPACE for the matching layout
+                    headroom, so bigger labels don't overlap their neighbours).
+     --ts-small     hints, dates, status lines, counts/badges, the map legend
+                    and footer hint, settings help text.
+   A few decorative/large glyphs (brand-icon, empty-state icons) are scaled
+   with whichever role they sit alongside rather than getting a role of
+   their own. */
+
 @font-face {
   font-family: 'Jim Nightshade';
   src: url('/fonts/JimNightshade-Regular.ttf') format('truetype');
@@ -42,6 +64,8 @@
   --gold: #d3a976;
   --good: #a4c79b;
   --bad: #e0906e;
+  /* Wilderness zones on the map: mixed into --bg like the brown zone tint. */
+  --zone-wild: #5f9a50;
 }
 
 :root[data-theme="light"] {
@@ -65,6 +89,7 @@
   --gold: #7a5314;
   --good: #2f6b3a;
   --bad: #a8391a;
+  --zone-wild: #3f7a36;
 }
 
 /* ---------- Colour-blind mode (Settings → Appearance) ----------
@@ -134,7 +159,7 @@ body {
   font-family: 'Quintessential', 'Segoe UI', system-ui, sans-serif;
   background: var(--bg);
   color: var(--text);
-  font-size: 15px;
+  font-size: calc(15px * var(--ts-body, 1));
 }
 
 .app {
@@ -165,7 +190,7 @@ body {
 }
 
 .error-boundary-icon {
-  font-size: 32px;
+  font-size: calc(32px * var(--ts-headings, 1));
   line-height: 1;
 }
 
@@ -176,7 +201,7 @@ body {
 
 .error-boundary-card p {
   margin: 0;
-  font-size: 13px;
+  font-size: calc(13px * var(--ts-body, 1));
   line-height: 1.6;
   color: var(--text-dim);
   text-align: left;
@@ -189,7 +214,7 @@ body {
 .error-boundary-details {
   margin-top: 8px;
   text-align: left;
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-small, 1));
   color: var(--text-dim);
 }
 
@@ -225,7 +250,7 @@ body {
 }
 
 .brand-icon {
-  font-size: 28px;
+  font-size: calc(28px * var(--ts-headings, 1));
 }
 
 .sidebar-brand-text {
@@ -235,14 +260,14 @@ body {
 .brand-title {
   font-family: 'Jim Nightshade', Georgia, serif;
   font-weight: bold;
-  font-size: 26px;
+  font-size: calc(26px * var(--ts-headings, 1));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .brand-sub {
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-small, 1));
   color: var(--text-dim);
 }
 
@@ -257,7 +282,7 @@ body {
   color: var(--text);
   cursor: pointer;
   text-align: left;
-  font-size: 14px;
+  font-size: calc(14px * var(--ts-ui, 1));
 }
 
 .nav-btn:hover {
@@ -270,7 +295,7 @@ body {
 }
 
 .nav-icon {
-  font-size: 20px;
+  font-size: calc(20px * var(--ts-ui, 1));
 }
 
 .nav-label {
@@ -280,7 +305,7 @@ body {
 
 .nav-hint {
   display: block;
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-ui, 1));
   color: var(--text-dim);
 }
 
@@ -316,7 +341,7 @@ body {
 .list-header h2 {
   margin: 0;
   font-family: Georgia, serif;
-  font-size: 20px;
+  font-size: calc(20px * var(--ts-headings, 1));
 }
 
 .search-input {
@@ -335,7 +360,7 @@ body {
   color: var(--text-dim);
   border-radius: 20px;
   padding: 3px 10px;
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-ui, 1));
   cursor: pointer;
 }
 
@@ -385,7 +410,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-small, 1));
   color: var(--text-dim);
 }
 
@@ -394,7 +419,7 @@ body {
   color: var(--on-solid);
   border-radius: 4px;
   padding: 1px 6px;
-  font-size: 10px;
+  font-size: calc(10px * var(--ts-small, 1));
 }
 
 .item-date {
@@ -405,7 +430,7 @@ body {
 
 .empty-hint {
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-small, 1));
   padding: 12px;
   line-height: 1.5;
 }
@@ -435,7 +460,7 @@ body {
 }
 
 .empty-icon {
-  font-size: 48px;
+  font-size: calc(48px * var(--ts-headings, 1));
   margin-bottom: 12px;
 }
 
@@ -448,7 +473,7 @@ body {
 
 .status-text {
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-small, 1));
   margin-right: auto;
 }
 
@@ -459,7 +484,7 @@ body {
   border-radius: 8px;
   padding: 6px 14px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: calc(13px * var(--ts-ui, 1));
 }
 
 .btn:hover {
@@ -491,7 +516,7 @@ input, select, textarea {
   border-radius: 8px;
   color: var(--text);
   padding: 8px 10px;
-  font-size: 13px;
+  font-size: calc(13px * var(--ts-body, 1));
   font-family: inherit;
 }
 
@@ -501,7 +526,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 .title-input {
-  font-size: 22px;
+  font-size: calc(22px * var(--ts-headings, 1));
   font-family: Georgia, serif;
   font-weight: bold;
   padding: 10px 12px;
@@ -521,7 +546,7 @@ input:focus, select:focus, textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-small, 1));
   color: var(--text-dim);
 }
 
@@ -535,7 +560,7 @@ input:focus, select:focus, textarea:focus {
   min-height: 300px;
   resize: none;
   line-height: 1.6;
-  font-size: 14px;
+  font-size: calc(14px * var(--ts-body, 1));
 }
 
 /* The AI's summary while it's being written: dressed like the textarea it
@@ -603,7 +628,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 .palette-label {
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-ui, 1));
   color: var(--text-dim);
   margin-right: 4px;
 }
@@ -613,7 +638,7 @@ input:focus, select:focus, textarea:focus {
   border-radius: 8px;
   color: var(--on-solid);
   font-weight: 700;
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-ui, 1));
   padding: 7px 12px;
   cursor: pointer;
   box-shadow: 0 2px 0 var(--sunk);
@@ -667,14 +692,14 @@ input:focus, select:focus, textarea:focus {
 
 .block-grip {
   color: rgba(233, 226, 208, 0.5);
-  font-size: 14px;
+  font-size: calc(14px * var(--ts-ui, 1));
   letter-spacing: -2px;
   user-select: none;
 }
 
 .block-label {
   font-weight: 800;
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-ui, 1));
   text-transform: uppercase;
   letter-spacing: 0.5px;
   width: 110px;
@@ -687,7 +712,7 @@ input:focus, select:focus, textarea:focus {
   border: none;
   border-radius: 6px;
   color: var(--text);
-  font-size: 13px;
+  font-size: calc(13px * var(--ts-body, 1));
 }
 
 .block-input::placeholder {
@@ -707,7 +732,7 @@ input:focus, select:focus, textarea:focus {
   width: 24px;
   height: 24px;
   cursor: pointer;
-  font-size: 10px;
+  font-size: calc(10px * var(--ts-ui, 1));
 }
 
 .block-btn:hover {
@@ -717,7 +742,7 @@ input:focus, select:focus, textarea:focus {
 /* ---------- Sections & session tracking ---------- */
 
 .section-label {
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-small, 1));
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -748,7 +773,7 @@ input:focus, select:focus, textarea:focus {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-small, 1));
   color: var(--text);
   font-weight: 600;
 }
@@ -775,7 +800,7 @@ input:focus, select:focus, textarea:focus {
   border: 1px solid rgba(177, 68, 29, 0.55);
   border-radius: 10px;
   padding: 12px 14px;
-  font-size: 13px;
+  font-size: calc(13px * var(--ts-body, 1));
   color: var(--text);
   line-height: 1.5;
 }
@@ -792,7 +817,7 @@ input:focus, select:focus, textarea:focus {
 
 .session-number {
   font-family: Georgia, serif;
-  font-size: 18px;
+  font-size: calc(18px * var(--ts-headings, 1));
   font-weight: bold;
   color: var(--gold);
   white-space: nowrap;
@@ -801,7 +826,7 @@ input:focus, select:focus, textarea:focus {
 .session-times {
   display: flex;
   gap: 18px;
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-small, 1));
   color: var(--text-dim);
 }
 
@@ -820,7 +845,7 @@ input:focus, select:focus, textarea:focus {
 
 .recap-group-title {
   font-weight: 700;
-  font-size: 13px;
+  font-size: calc(13px * var(--ts-headings, 1));
   margin-bottom: 8px;
 }
 
@@ -828,12 +853,12 @@ input:focus, select:focus, textarea:focus {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: calc(13px * var(--ts-body, 1));
   padding: 3px 0;
 }
 
 .action-badge {
-  font-size: 10px;
+  font-size: calc(10px * var(--ts-small, 1));
   font-weight: 700;
   border-radius: 4px;
   padding: 1px 6px;
@@ -884,12 +909,12 @@ input:focus, select:focus, textarea:focus {
 }
 
 .dice-warning {
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-small, 1));
   color: var(--bad);
 }
 
 .manual-tag {
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-small, 1));
   color: var(--text-dim);
   margin-left: 8px;
 }
@@ -925,7 +950,7 @@ input:focus, select:focus, textarea:focus {
 
 .dice-notation {
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: calc(13px * var(--ts-body, 1));
   margin-right: 4px;
 }
 
@@ -940,7 +965,7 @@ input:focus, select:focus, textarea:focus {
   border: 1px solid var(--border);
   border-radius: 8px;
   font-weight: 700;
-  font-size: 15px;
+  font-size: calc(15px * var(--ts-ui, 1));
 }
 
 .die-face.nat20 {
@@ -962,7 +987,7 @@ input:focus, select:focus, textarea:focus {
 
 .dice-total {
   font-family: Georgia, serif;
-  font-size: 22px;
+  font-size: calc(22px * var(--ts-headings, 1));
   font-weight: bold;
   color: var(--gold);
   margin-left: 6px;
@@ -976,7 +1001,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 .outcome-hint {
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-small, 1));
   color: var(--text-dim);
 }
 
@@ -1024,7 +1049,7 @@ input:focus, select:focus, textarea:focus {
 
 .map-station-label {
   fill: var(--text);
-  font-size: 13px;
+  font-size: calc(13px * var(--ts-map, 1));
   font-weight: 600;
   font-family: 'Quintessential', 'Segoe UI', system-ui, sans-serif;
   paint-order: stroke;
@@ -1048,7 +1073,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 .map-badge text {
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-map, 1));
   font-family: 'Quintessential', 'Segoe UI', system-ui, sans-serif;
   pointer-events: none;
 }
@@ -1059,7 +1084,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 .map-info-npcs-title {
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-small, 1));
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -1071,7 +1096,7 @@ input:focus, select:focus, textarea:focus {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: calc(13px * var(--ts-body, 1));
 }
 
 .map-npc-dot {
@@ -1084,7 +1109,7 @@ input:focus, select:focus, textarea:focus {
 
 .map-npc-occ {
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-small, 1));
 }
 
 .map-toolbar {
@@ -1117,7 +1142,7 @@ input:focus, select:focus, textarea:focus {
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-ui, 1));
   font-weight: 700;
   border-bottom: 1px solid var(--border);
 }
@@ -1125,7 +1150,7 @@ input:focus, select:focus, textarea:focus {
 .sort-flip {
   width: auto;
   padding: 2px 8px;
-  font-size: 10px;
+  font-size: calc(10px * var(--ts-ui, 1));
   background: var(--bg-input);
   border: 1px solid var(--border);
   color: var(--text-dim);
@@ -1147,7 +1172,7 @@ input:focus, select:focus, textarea:focus {
   border: none;
   border-bottom: 1px solid rgba(72, 83, 84, 0.35);
   color: var(--text);
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-body, 1));
   cursor: pointer;
   text-align: left;
 }
@@ -1170,7 +1195,7 @@ input:focus, select:focus, textarea:focus {
 
 .map-note-age {
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-small, 1));
   white-space: nowrap;
 }
 
@@ -1185,7 +1210,7 @@ input:focus, select:focus, textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-small, 1));
 }
 
 .map-legend-row {
@@ -1235,12 +1260,12 @@ svg.map-legend-swatch {
 
 .map-info-title {
   font-family: Georgia, serif;
-  font-size: 18px;
+  font-size: calc(18px * var(--ts-headings, 1));
   font-weight: bold;
 }
 
 .map-info-conn {
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-body, 1));
   color: var(--text-dim);
   line-height: 1.5;
 }
@@ -1250,14 +1275,14 @@ svg.map-legend-swatch {
   color: var(--on-solid);
   border-radius: 4px;
   padding: 0 6px;
-  font-size: 10px;
+  font-size: calc(10px * var(--ts-small, 1));
   font-weight: 700;
   margin-right: 6px;
 }
 
 .map-info-desc {
   margin: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-body, 1));
   line-height: 1.5;
   color: var(--text-dim);
 }
@@ -1276,7 +1301,7 @@ svg.map-legend-swatch {
   max-width: 420px;
   text-align: center;
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: calc(13px * var(--ts-body, 1));
   line-height: 1.6;
   background: var(--bg-panel);
   border: 1px solid var(--border);
@@ -1292,7 +1317,7 @@ svg.map-legend-swatch {
   left: 260px;
   right: 16px;
   text-align: center;
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-small, 1));
   color: var(--text-dim);
   pointer-events: none;
 }
@@ -1354,7 +1379,7 @@ svg.map-legend-swatch {
   background: var(--sunk);
   border-radius: 6px;
   padding: 8px 10px;
-  font-size: 13px;
+  font-size: calc(13px * var(--ts-body, 1));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1369,7 +1394,7 @@ svg.map-legend-swatch {
 .total-max {
   flex: 0 0 auto;
   font-family: Georgia, serif;
-  font-size: 16px;
+  font-size: calc(16px * var(--ts-headings, 1));
   font-weight: bold;
   color: var(--bad);
   white-space: nowrap;
@@ -1408,7 +1433,7 @@ svg.map-legend-swatch {
   border-radius: 6px;
   color: var(--text);
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: 15px;
+  font-size: calc(15px * var(--ts-body, 1));
   font-weight: bold;
   text-align: center;
 }
@@ -1416,7 +1441,7 @@ svg.map-legend-swatch {
 .dmg-input::placeholder {
   color: var(--text-dim);
   font-weight: normal;
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-small, 1));
 }
 
 .dmg-input:focus {
@@ -1467,8 +1492,8 @@ svg.map-legend-swatch {
 }
 
 .reconcile-head { display: flex; flex-direction: column; gap: 4px; }
-.reconcile-title { font-family: Georgia, serif; font-size: 18px; font-weight: bold; }
-.reconcile-sub { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+.reconcile-title { font-family: Georgia, serif; font-size: calc(18px * var(--ts-headings, 1)); font-weight: bold; }
+.reconcile-sub { font-size: calc(12px * var(--ts-small, 1)); color: var(--text-dim); line-height: 1.5; }
 
 .reconcile-list { display: flex; flex-direction: column; gap: 10px; }
 
@@ -1480,7 +1505,7 @@ svg.map-legend-swatch {
 }
 
 .reconcile-tag { font-weight: 600; margin-bottom: 4px; }
-.reconcile-hint { font-size: 11px; color: var(--gold); margin-bottom: 6px; }
+.reconcile-hint { font-size: calc(11px * var(--ts-small, 1)); color: var(--gold); margin-bottom: 6px; }
 
 .reconcile-opts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 
@@ -1490,7 +1515,7 @@ svg.map-legend-swatch {
   color: var(--text-dim);
   border-radius: 8px;
   padding: 4px 10px;
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-ui, 1));
   cursor: pointer;
 }
 .reconcile-opt:hover { border-color: var(--accent); }
@@ -1562,11 +1587,11 @@ svg.map-legend-swatch {
   }
 
   .nav-icon {
-    font-size: 18px;
+    font-size: calc(18px * var(--ts-ui, 1));
   }
 
   .nav-label {
-    font-size: 10px;
+    font-size: calc(10px * var(--ts-ui, 1));
   }
 
   /* ----- Session widget: slim strip docked above the tab bar ----- */
@@ -1725,7 +1750,7 @@ svg.map-legend-swatch {
     border: none;
     color: var(--text);
     font-weight: 700;
-    font-size: 12px;
+    font-size: calc(12px * var(--ts-ui, 1));
     padding: 0;
     cursor: pointer;
   }
@@ -1798,13 +1823,13 @@ svg.map-legend-swatch {
 
 .party-head h2 {
   font-family: Georgia, serif;
-  font-size: 16px;
+  font-size: calc(16px * var(--ts-headings, 1));
   margin: 0;
 }
 
 .party-hint {
   flex: 1;
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-small, 1));
   color: var(--text-dim);
 }
 
@@ -1829,7 +1854,7 @@ svg.map-legend-swatch {
 }
 
 .party-player {
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-small, 1));
   color: var(--text-dim);
   font-style: italic;
   max-width: 132px;
@@ -1855,12 +1880,12 @@ svg.map-legend-swatch {
 }
 
 .party-token {
-  font-size: 20px;
+  font-size: calc(20px * var(--ts-ui, 1));
   line-height: 1.2;
 }
 
 .party-name {
-  font-size: 13px;
+  font-size: calc(13px * var(--ts-body, 1));
   font-weight: 600;
   max-width: 116px;
   overflow: hidden;
@@ -1869,7 +1894,7 @@ svg.map-legend-swatch {
 }
 
 .party-sub {
-  font-size: 10px;
+  font-size: calc(10px * var(--ts-small, 1));
   color: var(--text-dim);
   max-width: 116px;
   overflow: hidden;
@@ -1927,13 +1952,13 @@ svg.map-legend-swatch {
 
 .char-node-label {
   fill: var(--text);
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-map, 1));
   font-weight: 600;
 }
 
 .char-node-sub {
   fill: var(--text-dim);
-  font-size: 10px;
+  font-size: calc(10px * var(--ts-map, 1));
 }
 
 /* Colour-blind mode: a letter on the node itself (A/F/N/S/H/?) so disposition
@@ -1942,7 +1967,7 @@ svg.map-legend-swatch {
   text-anchor: middle;
   fill: var(--on-solid);
   font-weight: 700;
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-map, 1));
   pointer-events: none;
 }
 
@@ -1958,7 +1983,7 @@ svg.map-legend-swatch {
 
 .group-hull-label {
   font-family: Georgia, serif;
-  font-size: 13px;
+  font-size: calc(13px * var(--ts-map, 1));
   font-weight: bold;
   paint-order: stroke;
   stroke: var(--bg);
@@ -1994,7 +2019,7 @@ svg.map-legend-swatch {
 }
 
 .search-count {
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-small, 1));
   color: var(--text-dim);
 }
 
@@ -2009,7 +2034,7 @@ svg.map-legend-swatch {
   border: 1px solid var(--border);
   border-radius: 20px;
   padding: 5px 12px;
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-ui, 1));
   color: var(--text-dim);
   pointer-events: none;
 }
@@ -2097,7 +2122,7 @@ svg.map-legend-swatch {
   flex: 1;
   margin: 0;
   font-family: Georgia, serif;
-  font-size: 16px;
+  font-size: calc(16px * var(--ts-headings, 1));
 }
 
 .modal-body {
@@ -2122,7 +2147,7 @@ svg.map-legend-swatch {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-small, 1));
   color: var(--text-dim);
 }
 
@@ -2139,7 +2164,7 @@ svg.map-legend-swatch {
 }
 
 .align-end {
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-small, 1));
   color: var(--text-dim);
 }
 
@@ -2243,7 +2268,7 @@ svg.map-legend-swatch {
 }
 
 .group-count {
-  font-size: 10px;
+  font-size: calc(10px * var(--ts-small, 1));
   color: var(--text-dim);
 }
 
@@ -2327,6 +2352,19 @@ svg.map-legend-swatch {
   stroke: var(--danger);
 }
 
+/* An empty Town or Village: a small octagon in the zone colours instead of a
+   dot (see isAreaStop in mapZones.mjs). Fill and stroke colour come inline
+   from zoneFillStyle, so it matches full zones in both themes. */
+.map-area-marker {
+  stroke-width: 2px;
+}
+
+/* Inline styles set the normal stroke, so the selected one has to outrank them. */
+.map-area-marker.selected {
+  stroke: var(--danger) !important;
+  stroke-width: 3px;
+}
+
 /* ---------- Settings ---------- */
 
 .settings-page {
@@ -2361,12 +2399,12 @@ svg.map-legend-swatch {
 .settings-card h3 {
   margin: 0;
   font-family: Georgia, serif;
-  font-size: 15px;
+  font-size: calc(15px * var(--ts-headings, 1));
 }
 
 .settings-help {
   margin: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-small, 1));
   line-height: 1.6;
   color: var(--text-dim);
 }
@@ -2376,7 +2414,7 @@ svg.map-legend-swatch {
   border: 1px solid var(--border);
   border-radius: 5px;
   padding: 2px 6px;
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-small, 1));
   word-break: break-all;
 }
 
@@ -2394,7 +2432,7 @@ svg.map-legend-swatch {
 
 .settings-status,
 .settings-error {
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-small, 1));
   line-height: 1.5;
   border-radius: 8px;
   padding: 8px 10px;
@@ -2482,11 +2520,11 @@ svg.map-legend-swatch {
 
 .theme-option-label {
   font-weight: 600;
-  font-size: 13px;
+  font-size: calc(13px * var(--ts-ui, 1));
 }
 
 .theme-option-hint {
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-small, 1));
   color: var(--text-dim);
 }
 
@@ -2508,7 +2546,7 @@ svg.map-legend-swatch {
 
 .font-row .font-option-fantasy .font-option-name {
   font-family: 'Jim Nightshade', Georgia, serif;
-  font-size: 17px;
+  font-size: calc(17px * var(--ts-ui, 1));
 }
 
 .font-row .font-option-easy-read .font-option-name {
@@ -2557,24 +2595,24 @@ svg.map-legend-swatch {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 14px;
-  font-size: 11px;
+  font-size: calc(11px * var(--ts-small, 1));
   color: var(--text-dim);
 }
 
 .preview-relation-legend-label {
   fill: var(--text-dim);
-  font-size: 10px;
+  font-size: calc(10px * var(--ts-map, 1));
   font-family: 'Segoe UI', system-ui, sans-serif;
 }
 
 .preview-demo-heading {
   margin: 4px 0 0;
-  font-size: 16px;
+  font-size: calc(16px * var(--ts-headings, 1));
 }
 
 .preview-demo-body {
   margin: 0;
-  font-size: 13px;
+  font-size: calc(13px * var(--ts-body, 1));
   line-height: 1.6;
   color: var(--text-dim);
 }
@@ -2616,7 +2654,7 @@ svg.map-legend-swatch {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 13px;
+  font-size: calc(13px * var(--ts-body, 1));
 }
 
 @media (max-width: 700px) {
@@ -2650,7 +2688,7 @@ svg.map-legend-swatch {
 .map-zone-label {
   fill: var(--text-dim);
   opacity: 0.75;
-  font-size: 22px;
+  font-size: calc(22px * var(--ts-map, 1));
   font-weight: 700;
   font-family: 'Jim Nightshade', Georgia, serif;
   paint-order: stroke;
@@ -2737,7 +2775,7 @@ svg.map-legend-swatch {
 
 .map-list-note {
   fill: var(--gold);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--ts-map, 1));
   letter-spacing: 0.2px;
   font-style: italic;
   font-family: 'Quintessential', 'Segoe UI', system-ui, sans-serif;
@@ -2748,7 +2786,7 @@ svg.map-legend-swatch {
 
 .map-list-npc {
   fill: var(--text-dim);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--ts-map, 1));
   letter-spacing: 0.2px;
   font-family: 'Quintessential', 'Segoe UI', system-ui, sans-serif;
   paint-order: stroke;
@@ -2763,7 +2801,7 @@ svg.map-legend-swatch {
 
 .map-list-more {
   fill: var(--text-dim);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--ts-map, 1));
   letter-spacing: 0.2px;
   font-family: 'Quintessential', 'Segoe UI', system-ui, sans-serif;
   paint-order: stroke;
@@ -2814,7 +2852,7 @@ svg.map-legend-swatch {
   border-radius: 6px;
   color: var(--text);
   padding: 4px 10px;
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-ui, 1));
   white-space: nowrap;
   cursor: pointer;
 }
@@ -2833,7 +2871,7 @@ svg.map-legend-swatch {
 
 .share-count {
   margin-left: auto;
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-small, 1));
   color: var(--text-dim);
 }
 
@@ -2879,7 +2917,7 @@ svg.map-legend-swatch {
   flex: 1;
   min-height: 200px;
   font-family: Consolas, 'Courier New', monospace;
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-body, 1));
   line-height: 1.45;
   resize: vertical;
 }
@@ -2903,7 +2941,7 @@ svg.map-legend-swatch {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--bg-panel-2);
-  font-size: 13px;
+  font-size: calc(13px * var(--ts-body, 1));
 }
 
 .import-help p {
@@ -2915,7 +2953,7 @@ svg.map-legend-swatch {
   padding: 8px 10px;
   border-radius: 8px;
   background: var(--sunk);
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-small, 1));
   white-space: pre-wrap;
 }
 
@@ -2947,7 +2985,7 @@ svg.map-legend-swatch {
 }
 
 .import-row-meta {
-  font-size: 12px;
+  font-size: calc(12px * var(--ts-small, 1));
   color: var(--text-dim);
 }
 
@@ -2972,6 +3010,123 @@ svg.map-legend-swatch {
 
 .settings-toggle input {
   margin-top: 3px;
+}
+
+/* ---------- Text size sliders (Settings → Appearance) ---------- */
+
+.textsize-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.textsize-row {
+  display: grid;
+  grid-template-columns: 1fr 160px 48px;
+  align-items: center;
+  gap: 10px;
+}
+
+.textsize-row-label {
+  display: flex;
+  flex-direction: column;
+  font-size: calc(13px * var(--ts-ui, 1));
+  font-weight: 600;
+  min-width: 0;
+}
+
+.textsize-row input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent-strong);
+}
+
+.textsize-value {
+  text-align: right;
+  font-size: calc(12px * var(--ts-small, 1));
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .textsize-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .textsize-value {
+    text-align: left;
+  }
+}
+
+/* ---------- Keyboard shortcuts modal (Settings) ---------- */
+
+.shortcuts-modal {
+  width: min(560px, 100%);
+}
+
+.shortcuts-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shortcuts-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(72, 83, 84, 0.2);
+}
+
+.shortcuts-row:last-child {
+  border-bottom: none;
+}
+
+.shortcuts-keys {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.shortcuts-sep {
+  color: var(--text-dim);
+  font-size: calc(11px * var(--ts-small, 1));
+}
+
+.shortcuts-action {
+  color: var(--text-dim);
+  font-size: calc(13px * var(--ts-body, 1));
+  text-align: right;
+}
+
+.shortcuts-row kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-panel-2);
+  box-shadow: 0 1px 0 var(--sunk);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: calc(11px * var(--ts-ui, 1));
+  font-weight: 600;
+  color: var(--text);
+}
+
+@media (max-width: 700px) {
+  .shortcuts-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .shortcuts-action {
+    text-align: left;
+  }
 }
 
 /* ---------- Font style (Settings → Appearance) ----------
@@ -3077,10 +3232,301 @@ svg.map-legend-swatch {
    needs its own smaller size (the ellipsis rule above is the fallback if a
    still-longer brand name ever gets typed in). */
 :is([data-font="easy-read"], [data-font="opendyslexic"]) .brand-title {
-  font-size: 18px;
+  font-size: calc(18px * var(--ts-headings, 1));
 }
 
 :is([data-font="easy-read"], [data-font="opendyslexic"])
   :is(.party-name, .party-sub, .party-player, .char-node-label, .char-node-sub) {
   letter-spacing: -0.2px;
 }
+
+/* ---- campaigns ---- */
+
+.campaigns-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.campaign-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.campaign-row.active {
+  border-color: var(--accent);
+}
+
+.campaign-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.campaign-new-row {
+  display: flex;
+  gap: 8px;
+}
+
+.campaign-new-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The compact switcher on the Map toolbar — a <select> styled like the
+   surrounding .btn toolbar buttons rather than the plain inputs elsewhere. */
+.campaign-switcher {
+  max-width: 180px;
+  text-overflow: ellipsis;
+}
+
+/* ---- find on map + journal ---- */
+
+/* Map → Ctrl+F / 🔍 find box: a small overlay centred at the top of the
+   map, above everything else on the page. */
+.map-find {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: min(360px, calc(100% - 32px));
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px var(--shadow);
+  overflow: hidden;
+}
+
+.map-find-input {
+  width: 100%;
+  border: none;
+  border-radius: 0;
+  background: var(--bg-input);
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: calc(14px * var(--ts-body, 1));
+}
+
+/* This input has no border of its own (the box around it stands in for
+   one), so the global input:focus rule's border-color tint alone would
+   leave a keyboard user with no visible focus indicator here — restore one
+   with an inset outline instead. */
+.map-find-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.map-find-list {
+  max-height: 280px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+
+.map-find-empty {
+  padding: 10px 12px;
+  color: var(--text-dim);
+  font-size: calc(13px * var(--ts-small, 1));
+}
+
+.map-find-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 8px 12px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.map-find-item:hover,
+.map-find-item.active {
+  background: var(--bg-panel-2);
+}
+
+.map-find-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-find-item-type {
+  font-size: calc(11px * var(--ts-small, 1));
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+/* The ring a find-box pick pulses on the place/zone it centred on — drawn
+   inside the map's own pan/zoom transform, so it rides along if the view is
+   still animating in. Growing the radius (rather than a CSS transform:
+   scale(), which SVG shapes need transform-box: fill-box for) keeps this
+   simple and correct however the circle is sized for a station vs a zone. */
+.map-find-pulse {
+  fill: none;
+  stroke: var(--accent-strong);
+  stroke-width: 4px;
+  pointer-events: none;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.map-find-pulse:not(.static) {
+  animation: map-find-pulse 0.5s ease-out 3;
+}
+
+.map-find-pulse.static {
+  opacity: 0.9;
+}
+
+@keyframes map-find-pulse {
+  0% { transform: scale(0.7); opacity: 1; }
+  60% { transform: scale(1.25); opacity: 0.3; }
+  100% { transform: scale(0.7); opacity: 1; }
+}
+
+/* Recap → 📖 Export journal dialog */
+
+.journal-range {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.journal-radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: calc(13px * var(--ts-ui, 1));
+  color: var(--text);
+  cursor: pointer;
+}
+
+.journal-range-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 18px;
+}
+
+.journal-range-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: calc(12px * var(--ts-small, 1));
+  color: var(--text-dim);
+}
+
+.journal-range-num {
+  width: 64px;
+}
+
+/* The journal itself only exists to be printed: kept off-screen (and out of
+   #root, see JournalExport.jsx) until @media print below shows it and hides
+   the rest of the app. Font-family is deliberately left alone — as a plain
+   descendant of <body> it inherits whatever body's own font-family already
+   resolves to (Quintessential, or var(--font-body) under easy-read/
+   OpenDyslexic — see the data-font rules above), so it follows the app's
+   font setting for free instead of needing its own copy of that switch. */
+.print-journal-portal {
+  display: none;
+}
+
+.print-journal {
+  color: #000;
+  background: #fff;
+}
+
+.print-journal h1,
+.print-journal h2,
+.print-journal h3 {
+  margin: 0 0 8px;
+}
+
+.print-journal p {
+  line-height: 1.5;
+  margin: 0 0 10px;
+}
+
+.print-cover {
+  text-align: center;
+  padding-top: 30vh;
+}
+
+.print-cover-range {
+  font-size: calc(15px * var(--ts-headings, 1));
+}
+
+.print-cover-date {
+  color: #444;
+  font-size: calc(12px * var(--ts-small, 1));
+}
+
+.print-contents ol {
+  padding-left: 22px;
+}
+
+.print-contents li {
+  margin-bottom: 6px;
+}
+
+.print-session-date {
+  color: #444;
+  font-size: calc(12px * var(--ts-small, 1));
+  margin-top: -4px;
+}
+
+.print-session-empty {
+  color: #444;
+  font-style: italic;
+}
+
+.print-changed {
+  margin-top: 14px;
+  font-size: calc(13px * var(--ts-body, 1));
+}
+
+.print-changed ul {
+  padding-left: 20px;
+}
+
+@media print {
+  @page {
+    margin: 18mm 16mm;
+  }
+  /* body/html keep the dark theme's own (near-black) background outside of
+     .app too — printBackground paints that literally, so without this the
+     page prints mostly-black with the journal text floating in a small
+     white patch the size of .print-journal's own content box. */
+  html, body {
+    background: #fff !important;
+  }
+  /* Hide the live app; show only the journal portal (a sibling of #root,
+     appended straight to <body> — see JournalExport.jsx). */
+  .app {
+    display: none !important;
+  }
+  .print-journal-portal {
+    display: block;
+  }
+  .print-cover {
+    break-after: page;
+  }
+  .print-contents {
+    break-after: page;
+  }
+  .print-session {
+    break-before: page;
+  }
+}
+

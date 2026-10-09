@@ -7,9 +7,14 @@ import {
   buildEdges,
   clampPointToRect,
   clampRectInRect,
+  AREA_MARKER_R,
+  AREA_TEXT_SHIFT,
   descendantsOf,
   edgeAttachPoint,
+  isAreaStop,
   isZone,
+  withAreaMarker,
+  zoneKind,
   octagonSideFor,
   smallestSquareAround,
   squareFits,
@@ -31,6 +36,7 @@ import {
   pointInOctagon,
   pushRectClear,
   resizeLimits,
+  scaleTextMetrics,
   stationFootprint,
   TEXT_METRICS,
   zoneFillStyle,
@@ -221,6 +227,64 @@ await test('isZone: a childless City is still a zone', () => {
   assert.equal(isZone({ _id: 'a', type: 'City' }, containment), true);
 });
 
+await test('isZone: a childless Wilderness is a zone too, drawn in the wild colours', () => {
+  const containment = { childrenOf: {} };
+  assert.equal(isZone({ _id: 'a', type: 'Wilderness' }, containment), true);
+  assert.equal(zoneKind({ type: 'Wilderness' }), 'wild');
+  assert.equal(zoneKind({ type: 'City' }), 'settled');
+  assert.match(zoneFillStyle(0, 'wild').fill, /--zone-wild/);
+  assert.notEqual(zoneFillStyle(0, 'wild').fill, zoneFillStyle(1, 'wild').fill, 'wild zones alternate by depth too');
+  assert.match(zoneFillStyle(0).fill, /--accent-strong/, 'the default kind is unchanged');
+});
+
+await test('isAreaStop: an empty Town or Village is a small area marker, not a full zone', () => {
+  const empty = { childrenOf: {} };
+  for (const type of ['Town', 'Village']) {
+    assert.equal(isZone({ _id: 'a', type }, empty), false);
+    assert.equal(isAreaStop({ _id: 'a', type }, empty), true);
+  }
+  assert.equal(isAreaStop({ _id: 'a', type: 'Landmark' }, empty), false);
+  assert.equal(isAreaStop({ _id: 'a', type: 'City' }, empty), false, 'a city is always a full zone');
+});
+
+await test('isAreaStop: a Town with something inside it is a full zone instead', () => {
+  const containment = { childrenOf: { a: ['b'] } };
+  assert.equal(isZone({ _id: 'a', type: 'Town' }, containment), true);
+  assert.equal(isAreaStop({ _id: 'a', type: 'Town' }, containment), false);
+});
+
+await test('withAreaMarker: the reserved box covers the octagon and pushes the text clear of it', () => {
+  const fp = stationFootprint({ nameLength: 6 });
+  const area = withAreaMarker(fp);
+  const plain = stationBox({ x: 100, y: 100 }, fp);
+  const box = stationBox({ x: 100, y: 100 }, area);
+  // The marker is centred on the point, AREA_MARKER_R each way.
+  assert.ok(box.x <= 100 - AREA_MARKER_R && box.y <= 100 - AREA_MARKER_R);
+  assert.ok(box.y + box.h >= 100 + AREA_MARKER_R);
+  // Text moved right by AREA_TEXT_SHIFT, so the right edge moves with it.
+  assert.equal(box.x + box.w, plain.x + plain.w + AREA_TEXT_SHIFT);
+  // A plain footprint still gets the original 14 / 16 box.
+  assert.deepEqual(plain, { x: 86, y: 84, w: fp.right + 14, h: fp.down + 16 });
+});
+
+await test('layoutZones: an empty Town inside a city is a member stop, and the city grows to hold its marker', () => {
+  const places = [
+    { _id: 'city', name: 'City', type: 'City', connections: [] },
+    { _id: 'town', name: 'Smallton', type: 'Town', connections: [{ type: 'inside', text: 'City' }] }
+  ];
+  const containment = buildContainment(places, buildEdges(places));
+  const fp = withAreaMarker(stationFootprint({ nameLength: 8 }));
+  const { zones, positions } = layoutZones(places, { town: { x: 0, y: 0 }, city: { x: 0, y: 0 } }, containment, {
+    footprintOf: (id) => (id === 'town' ? fp : null)
+  });
+  assert.deepEqual(zones.map((z) => z.id), ['city'], 'the empty town is not a zone');
+  assert.deepEqual(zones[0].memberIds, ['town']);
+  assert.equal(zones[0].kind, 'settled');
+  const box = stationBox(positions.town, fp);
+  const r = zones[0].rect;
+  assert.ok(box.x >= r.x && box.y >= r.y && box.x + box.w <= r.x + r.w && box.y + box.h <= r.y + r.h, 'marker and text sit inside the city');
+});
+
 await test('isZone: a childless Landmark is a stop, not a zone', () => {
   const containment = { childrenOf: {} };
   assert.equal(isZone({ _id: 'a', type: 'Landmark' }, containment), false);
@@ -397,6 +461,40 @@ await test('stationFootprint: a line longer than the 28-char cap is measured at 
   const overCap = stationFootprint({ noteLines: ['x'.repeat(80)], nameLength: 1 });
   assert.equal(overCap.right, capped.right, 'a line past 28 chars should not keep growing the footprint');
   assert.equal(overCap.right, 28 * TEXT_METRICS.listCharW + TEXT_METRICS.listIconW + TEXT_METRICS.marginRight);
+});
+
+// ---------- scaleTextMetrics ----------
+// Backs MapView's metricsForFont, which combines this with the font-width
+// scale to grow the Map's reserved layout space with the "Map & tree
+// labels" text-size slider (Settings → Appearance).
+
+await test('scaleTextMetrics at scale 1 returns the exact same object, not a copy', () => {
+  assert.equal(scaleTextMetrics(TEXT_METRICS, 1), TEXT_METRICS);
+  assert.equal(scaleTextMetrics(TEXT_METRICS, 0), TEXT_METRICS); // falsy scale also short-circuits
+});
+
+await test('scaleTextMetrics grows every size field by the given factor', () => {
+  const scaled = scaleTextMetrics(TEXT_METRICS, 1.5);
+  assert.equal(scaled.nameCharW, TEXT_METRICS.nameCharW * 1.5);
+  assert.equal(scaled.listCharW, TEXT_METRICS.listCharW * 1.5);
+  assert.equal(scaled.nameRowH, TEXT_METRICS.nameRowH * 1.5);
+  assert.equal(scaled.badgeRowH, TEXT_METRICS.badgeRowH * 1.5);
+  assert.equal(scaled.lineH, TEXT_METRICS.lineH * 1.5);
+  assert.equal(scaled.marginRight, TEXT_METRICS.marginRight * 1.5);
+  assert.equal(scaled.marginBottom, TEXT_METRICS.marginBottom * 1.5);
+});
+
+await test('scaleTextMetrics leaves nameCap and listIconW alone (not glyph sizes)', () => {
+  const scaled = scaleTextMetrics(TEXT_METRICS, 1.5);
+  assert.equal(scaled.nameCap, TEXT_METRICS.nameCap);
+  assert.equal(scaled.listIconW, TEXT_METRICS.listIconW);
+});
+
+await test('scaleTextMetrics composes with stationFootprint: a bigger scale reserves more room', () => {
+  const base = stationFootprint({ noteLines: ['A note'], nameLength: 10 }, TEXT_METRICS);
+  const bigger = stationFootprint({ noteLines: ['A note'], nameLength: 10 }, scaleTextMetrics(TEXT_METRICS, 1.5));
+  assert.ok(bigger.right > base.right);
+  assert.ok(bigger.down > base.down);
 });
 
 // ---------- zoneRects with footprints/per-zone headers ----------

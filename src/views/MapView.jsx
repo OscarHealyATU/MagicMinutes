@@ -1,25 +1,36 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api.js';
+import CampaignSwitcher from '../components/CampaignSwitcher.jsx';
 import { CONNECTION_TYPES } from './PlacesView.jsx';
 import { DISPOSITION_COLORS, dispositionOfNpc, dispositionTag, labelOf } from '../lib/characters.mjs';
 import {
+  AREA_MARKER_R,
+  AREA_TEXT_SHIFT,
   buildContainment,
   buildEdges,
   clampRectInRect,
   clampPointToLobes,
   descendantsOf,
+  isAreaStop,
   labelInset,
   layoutZones,
   LOBE_DEFAULTS,
   lobesAttachPoint,
   lobesPath,
+  octagonPath,
   packLayout,
   pushRectClear,
+  scaleTextMetrics,
   stationFootprint,
   TEXT_METRICS,
-  zoneFillStyle
+  withAreaMarker,
+  zoneCut,
+  zoneFillStyle,
+  zoneKind
 } from '../lib/mapZones.mjs';
 import { useZoomShortcuts } from '../lib/useZoomShortcuts.js';
+import { matchesShortcut, SHORTCUTS } from '../lib/shortcuts.mjs';
+import MapFind from '../components/MapFind.jsx';
 
 const GRID = 40;
 // The zone/footprint geometry below (TEXT_METRICS) is calibrated for the
@@ -32,11 +43,17 @@ const GRID = 40;
 const FONT_WIDTH_SCALE = { fantasy: 1, 'easy-read': 1.15, opendyslexic: 1.32 };
 // Colour-blind mode prefixes each NPC line with a "[F] " letter tag, which the
 // reserved list width has to count too (npcPrefix below).
-function metricsForFont(fontStyle, colorBlind = false) {
-  const scale = FONT_WIDTH_SCALE[fontStyle] || 1;
-  const base = scale === 1
-    ? TEXT_METRICS
-    : { ...TEXT_METRICS, nameCharW: TEXT_METRICS.nameCharW * scale, listCharW: TEXT_METRICS.listCharW * scale };
+// `mapScale` is the Settings → Appearance "Map & tree labels" text-size
+// slider: unlike the font-width scale above (which only widens name/list
+// text), a bigger label grows in both directions, so it's applied to every
+// size field via scaleTextMetrics, then the font-width scale narrows things
+// back down to just the two character-width fields.
+function metricsForFont(fontStyle, colorBlind = false, mapScale = 1) {
+  const fontScale = FONT_WIDTH_SCALE[fontStyle] || 1;
+  let base = scaleTextMetrics(TEXT_METRICS, mapScale);
+  if (fontScale !== 1) {
+    base = { ...base, nameCharW: base.nameCharW * fontScale, listCharW: base.listCharW * fontScale };
+  }
   return colorBlind ? { ...base, npcPrefix: '[?] ' } : base;
 }
 // Shared geometry so a freshly auto-arranged zone's saved size matches what
@@ -47,6 +64,17 @@ const ZONE_GEOMETRY = { pad: 36, labelHeadroom: 28, minW: 120, minH: 80 };
 const ZONE_GAP = 32;
 const PACK_OPTS = { ...ZONE_GEOMETRY, gridX: 120, gridY: 90, perRow: 3, zoneGap: ZONE_GAP };
 const RESIZE_HANDLE = 12;
+
+// Same combo useZoomShortcuts.js hard-codes for its own keys — read from
+// shortcuts.mjs here instead, so a future edit to that list can't silently
+// leave Ctrl+F answering to a different key than the list says it does.
+const FIND_SHORTCUT = SHORTCUTS.find((s) => s.action === 'Find a place or zone');
+
+function isTypingTarget(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+}
 
 const connInfo = (id) =>
   CONNECTION_TYPES.find((t) => t.id === id) || CONNECTION_TYPES[CONNECTION_TYPES.length - 1];
@@ -280,9 +308,12 @@ function noteNpcListFor(id, noteMatch, npcsByPlace, showNotes, showNpcs) {
 // always matches what's actually drawn. Feeds `zoneRects`/`packLayout`'s
 // `footprintOf` and the drag clamps, so a zone rect always has room for its
 // members' text and a dragged station never overlaps its own zone's edge.
-function footprintFor(id, place, noteMatch, npcsByPlace, showNotes, showNpcs, metrics = TEXT_METRICS) {
+//
+// `containment` says whether this is an area stop (an empty Town/Village),
+// whose octagon marker needs more room than a dot.
+function footprintFor(id, place, noteMatch, npcsByPlace, showNotes, showNpcs, metrics = TEXT_METRICS, containment = null) {
   const { notes, npcs, hidden } = noteNpcListFor(id, noteMatch, npcsByPlace, showNotes, showNpcs);
-  return stationFootprint(
+  const fp = stationFootprint(
     {
       noteLines: notes.map((n) => truncateLabel(n.title || 'Untitled')),
       npcLines: npcs.map((npc) => (metrics.npcPrefix || '') + truncateLabel(labelOf(npc))),
@@ -291,16 +322,22 @@ function footprintFor(id, place, noteMatch, npcsByPlace, showNotes, showNpcs, me
     },
     metrics
   );
+  return containment && isAreaStop(place, containment) ? withAreaMarker(fp) : fp;
 }
 
 // A zone's own header — the space its label/badges/list reserve at the top
 // of its rect — sized the same way a station's footprint is, just without a
 // name-width term (the label always starts flush at the zone's left edge).
-function headerHeightFor(id, noteMatch, npcsByPlace, showNotes, showNpcs) {
+// `metrics` is only consulted for its lineH, compared back against the
+// unscaled TEXT_METRICS.lineH to recover the current map-label scale — that
+// keeps every constant below growing together without a separate scale
+// argument, and leaves the default (scale 1) arithmetic untouched.
+function headerHeightFor(id, noteMatch, npcsByPlace, showNotes, showNpcs, metrics = TEXT_METRICS) {
   const { notes, npcs, hidden } = noteNpcListFor(id, noteMatch, npcsByPlace, showNotes, showNpcs);
   const lineCount = notes.length + npcs.length + (hidden > 0 ? 1 : 0);
   const hasBadges = notes.length > 0 || npcs.length > 0;
-  return 30 + (hasBadges ? 20 : 0) + LIST_LINE_HEIGHT * lineCount + 8;
+  const scale = metrics.lineH / TEXT_METRICS.lineH;
+  return (30 + (hasBadges ? 20 : 0)) * scale + metrics.lineH * lineCount + 8 * scale;
 }
 
 // How much straight top edge a zone's header needs, so its octagon can be
@@ -309,8 +346,11 @@ function headerHeightFor(id, noteMatch, npcsByPlace, showNotes, showNpcs) {
 // the name (~10px down) little, the badges (~34px) more, the list (~49px) most.
 function headerWidthFor(id, place, noteMatch, npcsByPlace, showNotes, showNpcs, metrics = TEXT_METRICS) {
   const { notes, npcs, hidden } = noteNpcListFor(id, noteMatch, npcsByPlace, showNotes, showNpcs);
-  const nameW = (place?.name || '').length * (metrics.nameCharW + 4) + 8;
-  const badgesW = ((notes.length > 0 ? 1 : 0) + (npcs.length > 0 ? 1 : 0)) * 46;
+  // Same lineH-derived scale headerHeightFor uses, so the badge-row and
+  // margin constants below grow with the map-label slider too.
+  const scale = metrics.lineH / TEXT_METRICS.lineH;
+  const nameW = (place?.name || '').length * (metrics.nameCharW + 4 * scale) + 8 * scale;
+  const badgesW = ((notes.length > 0 ? 1 : 0) + (npcs.length > 0 ? 1 : 0)) * 46 * scale;
   const listW = notes.length + npcs.length > 0
     ? stationFootprint(
         {
@@ -321,20 +361,23 @@ function headerWidthFor(id, place, noteMatch, npcsByPlace, showNotes, showNpcs, 
         metrics
       ).right
     : 0;
-  return Math.max(0, nameW - 10, badgesW - 34, listW - 49);
+  return Math.max(0, nameW - 10 * scale, badgesW - 34 * scale, listW - 49 * scale);
 }
 
 // Renders that capped list as a column of SVG text under a station/zone's
 // badge row. `pointer-events: none` (see .map-station-list) keeps it from
-// ever intercepting a drag or a badge click.
-function NoteNpcList({ id, x, y, noteMatch, npcsByPlace, showNotes, showNpcs, colorBlind }) {
+// ever intercepting a drag or a badge click. `lineHeight` defaults to the
+// unscaled constant but the real render passes down the current metrics'
+// lineH, so the lines actually drawn keep pace with the map-label slider
+// instead of overlapping once the CSS text grows past 14px.
+function NoteNpcList({ id, x, y, noteMatch, npcsByPlace, showNotes, showNpcs, colorBlind, lineHeight = LIST_LINE_HEIGHT }) {
   const { notes, npcs, hidden } = noteNpcListFor(id, noteMatch, npcsByPlace, showNotes, showNpcs);
   if (notes.length === 0 && npcs.length === 0) return null;
   let line = 0;
   return (
     <g className="map-station-list" transform={`translate(${x},${y})`}>
       {notes.map((n) => {
-        const ty = LIST_LINE_HEIGHT * line++;
+        const ty = lineHeight * line++;
         return (
           <text key={`n-${n._id}`} className="map-list-note" x="0" y={ty}>
             {`📜 ${truncateLabel(n.title || 'Untitled')}`}
@@ -342,7 +385,7 @@ function NoteNpcList({ id, x, y, noteMatch, npcsByPlace, showNotes, showNpcs, co
         );
       })}
       {npcs.map((npc) => {
-        const ty = LIST_LINE_HEIGHT * line++;
+        const ty = lineHeight * line++;
         return (
           <g key={`p-${npc._id}`} transform={`translate(0,${ty - 4})`}>
             <circle
@@ -360,7 +403,7 @@ function NoteNpcList({ id, x, y, noteMatch, npcsByPlace, showNotes, showNpcs, co
         );
       })}
       {hidden > 0 && (
-        <text className="map-list-more" x="0" y={LIST_LINE_HEIGHT * line}>{`+${hidden} more…`}</text>
+        <text className="map-list-more" x="0" y={lineHeight * line}>{`+${hidden} more…`}</text>
       )}
     </g>
   );
@@ -376,8 +419,21 @@ function tubePath(a, b) {
   return `M ${a.x} ${a.y} L ${mx} ${my} L ${b.x} ${b.y}`;
 }
 
-export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc, colorBlind, fontStyle }) {
-  const metrics = useMemo(() => metricsForFont(fontStyle, colorBlind), [fontStyle, colorBlind]);
+export default function MapView({
+  onOpenPlace,
+  onOpenNote,
+  onOpenNpc,
+  colorBlind,
+  fontStyle,
+  mapScale = 1,
+  onOpenSettings
+}) {
+  const metrics = useMemo(() => metricsForFont(fontStyle, colorBlind, mapScale), [fontStyle, colorBlind, mapScale]);
+  // Same lineH-derived ratio headerHeightFor/headerWidthFor use, for the
+  // pixel offsets below (badge chips, zone-label baseline, list start) that
+  // aren't sized through TEXT_METRICS at all — multiplying by 1 at the
+  // default setting is a no-op, so the untouched layout stays untouched.
+  const labelScale = metrics.lineH / TEXT_METRICS.lineH;
   const [places, setPlaces] = useState([]);
   const [npcs, setNpcs] = useState([]);
   const [notes, setNotes] = useState([]);
@@ -413,6 +469,15 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc, colorBlind
   // Bumped when a drag ends, so the save effect runs even if the drop itself
   // changed nothing that re-renders (a resize's size was already set live).
   const [saveTick, setSaveTick] = useState(0);
+  // Ctrl+F / the 🔍 button's find box, and the pulse ring left behind after
+  // a pick — both null/false until used. `pulse` carries its own id so a
+  // stale timeout from an earlier pick can't clear a newer one.
+  const [findOpen, setFindOpen] = useState(false);
+  const [pulse, setPulse] = useState(null);
+  const pulseSeqRef = useRef(0);
+  // In-flight pan/zoom animation (see panZoomTo), so a second pick before the
+  // first finishes cancels it instead of fighting it frame by frame.
+  const panAnimRef = useRef(null);
 
   const edges = useMemo(() => buildEdges(places), [places]);
 
@@ -442,15 +507,15 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc, colorBlind
   // can all look them up by id via a plain function.
   const footprintById = useMemo(() => {
     const m = new Map();
-    for (const p of places) m.set(p._id, footprintFor(p._id, p, noteMatch, npcsByPlace, showNotes, showNpcs, metrics));
+    for (const p of places) m.set(p._id, footprintFor(p._id, p, noteMatch, npcsByPlace, showNotes, showNpcs, metrics, containment));
     return m;
-  }, [places, noteMatch, npcsByPlace, showNotes, showNpcs, metrics]);
+  }, [places, noteMatch, npcsByPlace, showNotes, showNpcs, metrics, containment]);
 
   const headerById = useMemo(() => {
     const m = new Map();
-    for (const p of places) m.set(p._id, headerHeightFor(p._id, noteMatch, npcsByPlace, showNotes, showNpcs));
+    for (const p of places) m.set(p._id, headerHeightFor(p._id, noteMatch, npcsByPlace, showNotes, showNpcs, metrics));
     return m;
-  }, [places, noteMatch, npcsByPlace, showNotes, showNpcs]);
+  }, [places, noteMatch, npcsByPlace, showNotes, showNpcs, metrics]);
 
   const headerWidthById = useMemo(() => {
     const m = new Map();
@@ -611,8 +676,8 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc, colorBlind
         // for those instead. Root-level stops keep computeLayout's spread.
         const packed = packLayout(docs, docContainment, {
           ...PACK_OPTS,
-          footprintOf: (id) => footprintFor(id, docById.get(id), docNoteMatch, docNpcsByPlace, true, true, metrics),
-          headerOf: (id) => headerHeightFor(id, docNoteMatch, docNpcsByPlace, true, true),
+          footprintOf: (id) => footprintFor(id, docById.get(id), docNoteMatch, docNpcsByPlace, true, true, metrics, docContainment),
+          headerOf: (id) => headerHeightFor(id, docNoteMatch, docNpcsByPlace, true, true, metrics),
           headerWidthOf: (id) => headerWidthFor(id, docById.get(id), docNoteMatch, docNpcsByPlace, true, true, metrics)
         }).positions;
         docs.forEach((p) => {
@@ -636,6 +701,90 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc, colorBlind
   }, []);
 
   useZoomShortcuts(svgRef, setView, { min: 0.3, max: 3, initial: initialView });
+
+  // Ctrl+F opens the find box — only while the Map page is actually mounted
+  // (this effect is torn down with it, see App.jsx's tab switch), and never
+  // while some other input has focus (typing "find" into a title shouldn't
+  // pop this open), except the find box's own input, which this same key
+  // should keep working from.
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (!matchesShortcut(e, FIND_SHORTCUT)) return;
+      const inFindBox = e.target && e.target.closest && e.target.closest('.map-find');
+      if (!inFindBox && isTypingTarget(e.target)) return;
+      // WebView2's own find bar would otherwise open underneath this.
+      e.preventDefault();
+      if (places.length === 0) return; // nothing to find yet
+      setFindOpen(true);
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [places.length]);
+
+  // Cancel any pan animation still running if the view unmounts mid-flight.
+  useEffect(() => () => {
+    if (panAnimRef.current) cancelAnimationFrame(panAnimRef.current);
+  }, []);
+
+  // Smoothly pans/zooms so `point` (world coords) ends up centred, zooming
+  // in to at least scale 1 if currently zoomed further out — never zooming
+  // out, so a pick never yanks the player's own zoom level back down.
+  function panZoomTo(point, duration = 450) {
+    if (!svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const vw = rect.width || 1;
+    const vh = rect.height || 1;
+    if (panAnimRef.current) cancelAnimationFrame(panAnimRef.current);
+    const start = view;
+    const targetScale = Math.max(start.scale, 1);
+    const target = {
+      tx: vw / 2 - point.x * targetScale,
+      ty: vh / 2 - point.y * targetScale,
+      scale: targetScale
+    };
+    const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) {
+      setView(target);
+      return;
+    }
+    const t0 = performance.now();
+    const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+    const step = (now) => {
+      const t = Math.min(1, (now - t0) / duration);
+      const k = easeOutCubic(t);
+      setView({
+        tx: start.tx + (target.tx - start.tx) * k,
+        ty: start.ty + (target.ty - start.ty) * k,
+        scale: start.scale + (target.scale - start.scale) * k
+      });
+      panAnimRef.current = t < 1 ? requestAnimationFrame(step) : null;
+    };
+    panAnimRef.current = requestAnimationFrame(step);
+  }
+
+  // ~1.5s / 2-3 pulses normally; prefers-reduced-motion swaps the animated
+  // ring for a static one shown for ~2s instead (see the CSS for both).
+  function triggerPulse(center, radius) {
+    const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const id = ++pulseSeqRef.current;
+    setPulse({ id, x: center.x, y: center.y, r: radius, reduced });
+    setTimeout(() => setPulse((p) => (p && p.id === id ? null : p)), reduced ? 2000 : 1500);
+  }
+
+  // A find-box pick: centre on it (zooming in if needed), select it exactly
+  // as a plain click would (opening its details panel), and pulse a ring on
+  // it. Reuses layoutPos/zones — the drawn positions — not the raw saved
+  // mapX/mapY, so this lands exactly where the station/zone is on screen.
+  function handleFindPick(id) {
+    setFindOpen(false);
+    const zone = zoneById.get(id);
+    const center = zone ? rectCenter(zone.rect) : layoutPos[id];
+    if (!center) return;
+    const radius = zone ? Math.max(30, Math.min(zone.rect.w, zone.rect.h) / 2 - 4) : 20;
+    panZoomTo(center);
+    setSelectedId(id);
+    triggerPulse(center, radius);
+  }
 
   // Keep a dragged place inside its zone's octagon (or, in joined octagons,
   // the band around the inner zones), clear of the zone's header.
@@ -1081,7 +1230,7 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc, colorBlind
             if (zone.lobes.some((l) => ![l.x, l.y, l.w, l.h, l.cut].every(Number.isFinite))) return null;
             // Nesting levels alternate between two fills (A, B, A, B…); see
             // zoneFillStyle, which the Settings preview shares.
-            const zoneFill = zoneFillStyle(zone.depth);
+            const zoneFill = zoneFillStyle(zone.depth, zone.kind);
             const badges = badgesFor(zone.id, noteMatch, npcsByPlace, showNotes, showNpcs);
             // One octagon, or several joined into one outline for a lobed
             // zone. The header (name, badges, list) sits on the top-left-most
@@ -1106,7 +1255,7 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc, colorBlind
                 <text
                   className="map-zone-label"
                   x={hx}
-                  y={head.y + 22}
+                  y={head.y + 22 * labelScale}
                   onMouseDown={(e) => onZoneMouseDown(e, zone)}
                 >
                   {zone.name}
@@ -1115,24 +1264,25 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc, colorBlind
                   <g
                     key={b.icon}
                     className="map-badge"
-                    transform={`translate(${hx + i * 46}, ${head.y + 30})`}
+                    transform={`translate(${hx + i * 46 * labelScale}, ${head.y + 30 * labelScale})`}
                     onMouseDown={(e) => e.stopPropagation()}
                     onClick={() => setSelectedId(zone.id)}
                   >
-                    <rect width="40" height="19" rx="9.5" />
-                    <text x="7" y="14">{b.icon}</text>
-                    <text className="map-badge-count" x="27" y="14">{b.count}</text>
+                    <rect width={40 * labelScale} height={19 * labelScale} rx={9.5 * labelScale} />
+                    <text x={7 * labelScale} y={14 * labelScale}>{b.icon}</text>
+                    <text className="map-badge-count" x={27 * labelScale} y={14 * labelScale}>{b.count}</text>
                   </g>
                 ))}
                 <NoteNpcList
                   id={zone.id}
                   x={hx}
-                  y={head.y + 58}
+                  y={head.y + 58 * labelScale}
                   noteMatch={noteMatch}
                   npcsByPlace={npcsByPlace}
                   showNotes={showNotes}
                   showNpcs={showNpcs}
                   colorBlind={colorBlind}
+                  lineHeight={metrics.lineH}
                 />
                 {/* Sits on the middle of the bottom-right diagonal edge. */}
                 <rect
@@ -1176,6 +1326,13 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc, colorBlind
             // Badges give the at-a-glance count; the full card (click a badge
             // or the station) is still where every note/NPC links through.
             const badges = badgesFor(p._id, noteMatch, npcsByPlace, showNotes, showNpcs);
+            // An empty Town or Village is an area, not a spot: a small octagon
+            // in the zone colours instead of a dot, with its text moved right
+            // to clear it. Its depth picks the fill, so it alternates against
+            // whatever zone it sits in just like a full zone would.
+            const area = isAreaStop(p, containment);
+            const textShift = area ? AREA_TEXT_SHIFT : 0;
+            const markerRect = { x: -AREA_MARKER_R, y: -AREA_MARKER_R, w: AREA_MARKER_R * 2, h: AREA_MARKER_R * 2 };
             return (
               <g
                 key={p._id}
@@ -1183,43 +1340,65 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc, colorBlind
                 transform={`translate(${pt.x},${pt.y})`}
                 onMouseDown={(e) => onNodeMouseDown(e, p._id)}
               >
-                <circle
-                  className={selectedId === p._id ? 'selected' : ''}
-                  r={isInterchange ? 10 : 7}
-                  strokeWidth={isInterchange ? 4 : 3}
-                />
-                <text className="map-station-label" x="14" y="4">{p.name}</text>
+                {area ? (
+                  <path
+                    className={`map-area-marker ${selectedId === p._id ? 'selected' : ''}`}
+                    d={octagonPath(markerRect, zoneCut(markerRect))}
+                    style={zoneFillStyle(containment.depthOf[p._id] || 0, zoneKind(p))}
+                  />
+                ) : (
+                  <circle
+                    className={selectedId === p._id ? 'selected' : ''}
+                    r={isInterchange ? 10 : 7}
+                    strokeWidth={isInterchange ? 4 : 3}
+                  />
+                )}
+                <text className="map-station-label" x={14 * labelScale + textShift} y={4 * labelScale}>{p.name}</text>
                 {badges.map((b, i) => (
                   <g
                     key={b.icon}
                     className="map-badge"
-                    transform={`translate(${12 + i * 46}, 12)`}
+                    transform={`translate(${12 * labelScale + textShift + i * 46 * labelScale}, ${12 * labelScale})`}
                     onMouseDown={(e) => e.stopPropagation()}
                     onClick={() => setSelectedId(p._id)}
                   >
-                    <rect width="40" height="19" rx="9.5" />
-                    <text x="7" y="14">{b.icon}</text>
-                    <text className="map-badge-count" x="27" y="14">{b.count}</text>
+                    <rect width={40 * labelScale} height={19 * labelScale} rx={9.5 * labelScale} />
+                    <text x={7 * labelScale} y={14 * labelScale}>{b.icon}</text>
+                    <text className="map-badge-count" x={27 * labelScale} y={14 * labelScale}>{b.count}</text>
                   </g>
                 ))}
                 <NoteNpcList
                   id={p._id}
-                  x={12}
-                  y={44}
+                  x={12 * labelScale + textShift}
+                  y={44 * labelScale}
                   noteMatch={noteMatch}
                   npcsByPlace={npcsByPlace}
                   showNotes={showNotes}
                   showNpcs={showNpcs}
                   colorBlind={colorBlind}
+                  lineHeight={metrics.lineH}
                 />
               </g>
             );
           })}
+          {pulse && (
+            <circle
+              className={`map-find-pulse ${pulse.reduced ? 'static' : ''}`}
+              cx={pulse.x}
+              cy={pulse.y}
+              r={pulse.r}
+            />
+          )}
         </g>
       </svg>
 
+      {findOpen && places.length > 0 && (
+        <MapFind places={places} onPick={handleFindPick} onClose={() => setFindOpen(false)} />
+      )}
+
       <div className="map-toolbar">
         <span className="status-text">{status}</span>
+        <CampaignSwitcher onManage={onOpenSettings} />
         <button
           className={`btn ${showNpcs ? 'primary' : ''}`}
           title="Show which NPCs are from each place"
@@ -1235,6 +1414,15 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc, colorBlind
           📜 Notes
         </button>
         <button className="btn" onClick={rearrange}>Auto-arrange</button>
+        {places.length > 0 && (
+          <button
+            className="btn"
+            title="Find a place or zone (Ctrl+F)"
+            onClick={() => setFindOpen((o) => !o)}
+          >
+            🔍
+          </button>
+        )}
       </div>
 
       {showNotes && unplacedNotes.length > 0 && (
@@ -1279,13 +1467,22 @@ export default function MapView({ onOpenPlace, onOpenNote, onOpenNpc, colorBlind
               {t.label} line
             </div>
           ))}
-          {zones.length > 0 && (
+          {(zones.some((z) => z.kind !== 'wild') || places.some((p) => isAreaStop(p, containment))) && (
             <div className="map-legend-row">
               <span
                 className="map-legend-swatch map-legend-zone"
                 style={{ background: zoneFillStyle(1).fill }}
               />
-              Zone (city / region / contains)
+              Area (settlement or region)
+            </div>
+          )}
+          {zones.some((z) => z.kind === 'wild') && (
+            <div className="map-legend-row">
+              <span
+                className="map-legend-swatch map-legend-zone"
+                style={{ background: zoneFillStyle(1, 'wild').fill }}
+              />
+              Wilderness
             </div>
           )}
         </div>

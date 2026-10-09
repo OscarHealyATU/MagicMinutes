@@ -16,6 +16,14 @@
     {
       "identifier": "fs:allow-write-text-file",
       "allow": [{ "path": "$APPDATA/**" }]
+    },
+    {
+      "identifier": "fs:allow-remove",
+      "allow": [
+        { "path": "$APPDATA/campaign-*.db" },
+        { "path": "$APPDATA/campaign-*.db-wal" },
+        { "path": "$APPDATA/campaign-*.db-shm" }
+      ]
     }
   ]
 }

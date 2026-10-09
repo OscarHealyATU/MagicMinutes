@@ -15,6 +15,7 @@ import {
   describeRelation,
   dispositionFor,
   dispositionTag,
+  HULL_TITLE_SPACE,
   labelOf,
   normalizeNpc,
   relationInfo,
@@ -72,7 +73,7 @@ function initialTx() {
   return font === 'easy-read' || font === 'opendyslexic' ? 40 : DEFAULT_TX;
 }
 
-export default function CharactersView({ focusId, colorBlind, onFocusUsed }) {
+export default function CharactersView({ focusId, colorBlind, mapScale = 1, onFocusUsed }) {
   // Computed once per mount (the view remounts on every tab switch, so this
   // still picks up a font style changed in Settings the next time you open it).
   const INITIAL_VIEW = useMemo(() => ({ tx: initialTx(), ty: 130 }), []);
@@ -117,7 +118,10 @@ export default function CharactersView({ focusId, colorBlind, onFocusUsed }) {
     return out;
   }, [npcs, layout, dragPos]);
 
-  const hulls = useMemo(() => computeGroupHulls(pos, npcs, groups), [pos, npcs, groups]);
+  const hulls = useMemo(
+    () => computeGroupHulls(pos, npcs, groups, HULL_TITLE_SPACE * mapScale),
+    [pos, npcs, groups, mapScale]
+  );
   const edges = useMemo(() => buildRelationEdges(npcs), [npcs]);
   const selected = npcs.find((n) => n._id === selectedId) || null;
   const hitCount = useMemo(
