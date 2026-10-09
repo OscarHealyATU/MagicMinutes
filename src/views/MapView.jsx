@@ -1473,7 +1473,7 @@ export default function MapView({
                 className="map-legend-swatch map-legend-zone"
                 style={{ background: zoneFillStyle(1).fill }}
               />
-              Area (settlement, region, or holds places)
+              Area (settlement or region)
             </div>
           )}
           {zones.some((z) => z.kind === 'wild') && (
