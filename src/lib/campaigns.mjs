@@ -8,10 +8,11 @@
 // (tests/campaigns.test.mjs, a fake driver, no real database).
 //
 // The pre-existing `default` campaign (today's ttrpgmap.db, holding the
-// owner's real notes) is never written to this table until something about
-// it changes (a rename, or the active campaign switching away from it) — an
-// empty table implicitly means "just the default campaign", so installs that
-// predate this feature keep working with zero migration.
+// owner's real notes) is never written to this table until it is renamed —
+// an empty table implicitly means "just the default campaign", so installs
+// that predate this feature keep working with zero migration. (Older versions
+// also stamped a "last opened" time on every launch; rows that still carry
+// that field are read as they are and the field is dropped on the next rename.)
 //
 // Reads always pull the whole (tiny) table rather than filtering in SQL —
 // that keeps this module working unchanged against the in-memory fake
@@ -87,8 +88,7 @@ export async function listCampaigns(driver) {
       _id: DEFAULT_CAMPAIGN_ID,
       name: DEFAULT_CAMPAIGN_NAME,
       file: DEFAULT_CAMPAIGN_FILE,
-      createdAt: null,
-      lastOpenedAt: null
+      createdAt: null
     });
   }
   return list.sort((a, b) => {
@@ -107,7 +107,7 @@ export async function getCampaign(driver, id) {
 export async function createCampaign(driver, name, { now = defaultNow, genId = defaultGenId } = {}) {
   const cleanName = validateCampaignName(name);
   const id = genId();
-  const doc = { name: cleanName, file: campaignFileName(id), createdAt: now(), lastOpenedAt: null };
+  const doc = { name: cleanName, file: campaignFileName(id), createdAt: now() };
   await driver.execute(`INSERT INTO ${REGISTRY_TABLE} (id, doc) VALUES ($1, $2)`, [id, JSON.stringify(doc)]);
   return { _id: id, ...doc };
 }
@@ -115,18 +115,7 @@ export async function createCampaign(driver, name, { now = defaultNow, genId = d
 export async function renameCampaign(driver, id, name) {
   const cleanName = validateCampaignName(name);
   const existing = await getCampaign(driver, id);
-  const doc = { name: cleanName, file: existing.file, createdAt: existing.createdAt, lastOpenedAt: existing.lastOpenedAt };
-  await writeRow(driver, id, doc);
-  return { _id: id, ...doc };
-}
-
-// Records that a campaign was just opened. Best-effort from the caller's
-// point of view (api.js calls this without letting a failure block loading
-// the campaign's own data) — losing a lastOpenedAt update isn't worth
-// failing a launch over.
-export async function touchLastOpened(driver, id, { now = defaultNow } = {}) {
-  const existing = await getCampaign(driver, id);
-  const doc = { name: existing.name, file: existing.file, createdAt: existing.createdAt, lastOpenedAt: now() };
+  const doc = { name: cleanName, file: existing.file, createdAt: existing.createdAt };
   await writeRow(driver, id, doc);
   return { _id: id, ...doc };
 }

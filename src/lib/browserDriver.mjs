@@ -403,15 +403,6 @@ export async function seedDemoData(driver) {
       { type: 'movement', text: 'Back behind the pillar', condition: '', roll: '' }
     ]
   });
-  await put('rolls', {
-    comboName: 'Shadow strike opener',
-    notation: '1d20+7',
-    die: 20,
-    rolls: [18],
-    modifier: 7,
-    total: 25,
-    outcome: 'success'
-  });
 
   // ---------- Sessions ----------
   await put('sessions', {

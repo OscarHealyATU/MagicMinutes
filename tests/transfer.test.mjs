@@ -138,15 +138,50 @@ await test('cleanDoc: coerces each collection to the shape its view expects', ()
   assert.equal(cleanDoc('unknown-collection', { _id: 'x', anything: 1 }).anything, 1, 'unknown collection passes through');
 });
 
-await test('cleanDoc: combos and rolls coerce each array entry too, not just the array itself', () => {
-  // A bare string/null block would throw when CombosView reads `b.type` off
-  // it; a non-number roll would throw as an invalid React child.
+await test('cleanDoc: combos coerce each block too, not just the array itself', () => {
+  // A bare string/null block would throw when CombosView reads `b.type` off it.
   const combo = cleanDoc('combos', { _id: 'c', blocks: [{ type: 'action', text: 'Hit' }, 'garbage', null, 42] });
   assert.deepEqual(combo.blocks, [
     { type: 'action', text: 'Hit', condition: '', roll: '' }
   ]);
-  const roll = cleanDoc('rolls', { _id: 'r', rolls: [4, '5', null, { bad: 1 }, 'six'] });
-  assert.deepEqual(roll.rolls, [4, 5, 0, 0, 0]);
+});
+
+// ---------- backups written when dice rolls were still saved ----------
+
+await test('an old backup with a "rolls" section imports everything else and reports rolls as skipped', () => {
+  const old = wrap({
+    notes: [doc('n1', { title: 'Bell tower' })],
+    combos: [doc('c1')],
+    rolls: [{ _id: 'r1', comboName: 'Nova', rolls: [18], total: 25, outcome: 'success' }]
+  });
+  const parsed = parseExport(JSON.stringify(old));
+  assert.deepEqual(parsed.skipped, ['rolls']);
+  assert.equal(parsed.collections.rolls, undefined);
+  assert.equal(parsed.collections.notes[0].title, 'Bell tower');
+  assert.equal(parsed.collections.combos.length, 1);
+
+  const merged = planImport({ notes: [], combos: [] }, parsed.collections, 'merge');
+  assert.equal(merged.totals.create, 2);
+  assert.equal(merged.plan.rolls, undefined, 'rolls never reaches the write step');
+  assert.deepEqual(describePlanByCollection(merged).length, 2);
+});
+
+await test('a Replace import of an old backup with rolls works, and leaves any saved rolls table alone', () => {
+  const parsed = parseExport(
+    JSON.stringify(wrap({ notes: [doc('n1')], rolls: [{ _id: 'r1' }, { _id: 'r2' }] }))
+  );
+  // `existing` is read from COLLECTIONS only, so an old rolls table is never in it.
+  const existing = { notes: [doc('n1'), doc('n2')], combos: [doc('c1')] };
+  const replaced = planImport(existing, parsed.collections, 'replace');
+  assert.deepEqual(replaced.plan.notes.remove, ['n2']);
+  assert.deepEqual(replaced.plan.combos, { create: [], update: [], remove: [] }, 'sections the file lacks are left alone');
+  assert.equal(replaced.plan.rolls, undefined);
+  assert.equal(replaced.totals.remove, 1);
+});
+
+await test('a new export no longer carries a rolls section', () => {
+  const built = buildExport({ notes: [doc('n1')], rolls: [{ _id: 'r1' }] });
+  assert.equal('rolls' in built.collections, false);
 });
 
 await test('cleanDoc: matches store.mjs\'s own document shape exactly, for every collection — the no-op re-import guarantee holds on real app data, not just hand-built fixtures', () => {

@@ -11,7 +11,7 @@
 // Every document is stored as one row: `id TEXT PRIMARY KEY, doc TEXT NOT NULL`,
 // where `doc` is the JSON-serialized document (including _id/createdAt/updatedAt).
 
-export const COLLECTIONS = ['notes', 'npcs', 'combos', 'groups', 'places', 'players', 'rolls', 'sessions'];
+export const COLLECTIONS = ['notes', 'npcs', 'combos', 'groups', 'places', 'players', 'sessions'];
 
 export function defaultNow() {
   return new Date().toISOString();
@@ -22,9 +22,8 @@ export function defaultGenId() {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-// Mirrors server/models.js defaults exactly (one factory per collection).
-// `ts` is only used by the `sessions` factory (startedAt defaults to the
-// creation timestamp, same as Mongoose's `Date.now` default).
+// Defaults for a new document, one factory per collection. `ts` is only used
+// by the `sessions` factory (startedAt defaults to the creation timestamp).
 const DEFAULTS = {
   notes: () => ({
     title: 'Untitled note',
@@ -82,17 +81,6 @@ const DEFAULTS = {
     description: '',
     notes: ''
   }),
-  rolls: () => ({
-    comboId: '',
-    comboName: '',
-    notation: '',
-    die: 0,
-    rolls: [],
-    modifier: 0,
-    total: 0,
-    outcome: 'none',
-    manual: false
-  }),
   sessions: (ts) => ({
     number: 1,
     title: '',
@@ -122,8 +110,8 @@ export function buildCreateDoc(resource, body, { now = defaultNow, genId = defau
   };
 }
 
-// Shallow-merge patch semantics matching Mongoose's findByIdAndUpdate: patch
-// fields overwrite, _id/createdAt are preserved, updatedAt is bumped.
+// Shallow-merge patch: patch fields overwrite, _id/createdAt are preserved,
+// updatedAt is bumped.
 //
 // `touch: false` skips the updatedAt bump — used for layout-only writes
 // (drag/resize/auto-arrange positions) so moving something on the map or the
@@ -212,8 +200,7 @@ export async function createDoc(driver, resource, body, deps) {
   return doc;
 }
 
-// Missing ids throw, matching the old api.js which turned the server's 404
-// {error: 'Not found'} into a thrown Error the views .catch and display.
+// Missing ids throw 'Not found', which the views catch and display.
 //
 // Serialized per (resource, id) — see withWriteLock above — so overlapping
 // updates to the same document apply in call order instead of racing.
@@ -262,7 +249,7 @@ export async function removeDoc(driver, resource, id) {
 
 // ---------- Sessions ----------
 
-// [collection, singular kind, name-getter] — mirrors server/routes.js's `tracked` array.
+// The collections a session recap reports on: [collection, singular kind, name-getter].
 const TRACKED = [
   ['notes', 'note', (d) => d.title],
   ['npcs', 'npc', (d) => d.name || d.descriptor],
@@ -362,8 +349,3 @@ export async function sessionsEnd(driver, id, deps = {}) {
     return updated;
   });
 }
-
-// Sessions list sorted by startedAt desc, patch limited to {title, summary}
-// (mirrors the PUT /api/sessions/:id route, which only accepts those two
-// fields) — but going through the generic updateDoc is fine since views only
-// ever pass {title, summary} to api.update('sessions', ...).

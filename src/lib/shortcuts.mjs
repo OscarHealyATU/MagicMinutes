@@ -1,5 +1,5 @@
-// Central list of every keyboard shortcut in the app — written for the
-// Settings → "Keyboard shortcuts" window (a later task), but kept here so
+// Central list of every keyboard shortcut in the app — shown in the
+// Settings → "Keyboard shortcuts" window (ShortcutsModal), and kept here so
 // this list and the handlers below can't quietly drift apart. Pure data, no
 // React/DOM, so it's cheap to import from a component or a settings screen
 // alike.

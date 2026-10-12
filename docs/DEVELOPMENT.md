@@ -39,11 +39,13 @@ for f in tests/*.test.mjs; do node "$f"; done
 |---|---|
 | `store.test.mjs` | The document store: defaults, create/update/upsert/remove, session recaps |
 | `characters.test.mjs` | Alignment bands, relations, the family-tree layout and group boxes |
-| `mapZones.test.mjs` | Map zones: containment, nesting, packing, clamping and resize limits |
+| `mapZones.test.mjs` | Map zones: containment, nesting, packing and clamping |
+| `mapLayout.test.mjs` | The map's starting layout, checked against a copy of the original algorithm |
 | `transfer.test.mjs` | Export/import validation, merge/replace planning, theme preference |
 | `recap.test.mjs` | Session summary material, the no-AI summary, the AI on/off preference |
 | `noteText.test.mjs` | The readable note format used for emailing and importing notes |
 | `a11y.test.mjs` | Font-style and colour-blind mode preferences |
+| `commands.test.mjs` | The command-line commands: parsing, notes, search, import plans, backups, `run` files |
 
 `npm test` runs them all. The Rust side has its own tests, including one that runs the real
 AI engine if its files are in place:
@@ -55,9 +57,10 @@ cd src-tauri && cargo test --lib -- --include-ignored
 ## Building an installer
 
 There are two editions: **standard**, and **AI**, which adds a built-in model for session
-summaries. They're the same app with the same identifier and data. The only difference is
-whether the `ai/` folder is bundled, and the app checks for it at runtime
-(`src-tauri/src/ai.rs`).
+summaries and the command-line tool (see Command-line mode below). They're the same app
+with the same identifier and data. The differences are the `ai/` folder, which the app
+checks for at runtime (`src-tauri/src/ai.rs`), and `magicminutes.exe` with `AGENTS.md`,
+which only `src-tauri/tauri.ai.conf.json` adds.
 
 ```bash
 npm run build:standard   # MagicMinutes_<version>_x64-setup.exe, a few MB
@@ -66,13 +69,14 @@ npm run build:ai         # MagicMinutes-AI_<version>_x64-setup.exe, about 530 MB
 
 Tauri writes both to the same `src-tauri/target/release/bundle/` folder, so each build
 script then copies its own installers into `release-installers/` under the edition's
-name. Build them in either order. The `nsis` `.exe` is the per-user installer attached to
-GitHub releases; the `.msi` is the same app as an MSI.
+name. Build them in either order. Releases build only the NSIS `.exe` (the `targets` in
+`tauri.conf.json`): the per-user installer attached to GitHub releases. There is no MSI.
 
 Either edition installs over the other. An installer hook (`src-tauri/windows/hooks.nsh`)
-clears the install folder's `ai/` before copying files, so switching to standard removes
-the AI files, and updating the AI edition never leaves an old model behind. Notes live in
-`%APPDATA%` and are never touched.
+clears the install folder's `ai/`, `magicminutes.exe` and `AGENTS.md` before copying
+files, so switching to standard removes the AI files and the command-line tool, and
+updating the AI edition never leaves an old model behind. Notes live in `%APPDATA%` and
+are never touched.
 
 ### The AI files
 
@@ -132,21 +136,69 @@ src/
     recap.mjs           session summary material
     ai.mjs              AI summaries: bridge to the built-in model, on/off preference
     noteText.mjs        readable note format for emailing and importing notes
+    commands.mjs        the command-line commands (see Command-line mode)
     dice.mjs            roll-notation parser for combos
     theme.mjs           light/dark preference
     a11y.mjs            font-style and colour-blind mode preferences
 src-tauri/              Rust entry point (src/ai.rs runs the AI engine), plugins, capabilities, icons, Android project
-  tauri.ai.conf.json    extra config for the AI edition: bundles the ai/ folder
-scripts/                setup-ai.mjs (fetch AI files), name-installers.mjs
+  tauri.ai.conf.json    extra config for the AI edition: bundles ai/ and AGENTS.md, turns on the `cli` feature
+scripts/                setup-ai.mjs (fetch AI files), build.mjs, collect-installers.mjs
 tests/                  plain Node test scripts
 ```
 
+### Command-line mode
+
+`magicminutes.exe` lets a terminal (and so an AI agent) drive the app. It comes with the
+MagicMinutes AI edition only, not the standard one. The commands reuse the app's own
+JavaScript, so there is one copy of the rules for notes, imports and campaigns. The pieces:
+
+1. **Launcher** (`src-tauri/src/bin/magicminutes.rs`): a second `[[bin]]` in the same
+   Cargo package, with no Tauri code in it. It runs `ttrpgmap.exe --cli <args>` from the
+   same folder, pipes the child's stdout and stderr through, and returns its exit code. It
+   has to be a console program: the real app is a windowed one, which a shell doesn't wait
+   for and which can't print to the terminal. `default-run = "ttrpgmap"` in `Cargo.toml`
+   keeps the app as the main binary; Tauri's installers put every other `[[bin]]` next to it.
+   The launcher has `required-features = ["cli"]`, so it is only built with the cargo
+   feature `cli`. `tauri.ai.conf.json` turns that on (`build.features`), so the AI
+   edition gets it and the standard edition doesn't.
+2. **Hidden window** (`src-tauri/src/cli.rs`, `lib.rs`): when `--cli` is the first
+   argument, the window in `tauri.conf.json` is set to `create: false` at startup and
+   rebuilt in `setup` with `visible(false)` and `skip_taskbar(true)`. An initialization
+   script sets `window.__MM_CLI__` to the JSON-encoded arguments. Without `--cli` none of
+   this runs and Tauri opens the window itself as before.
+3. **The page** (`src/main.jsx`, `src/cli.js`): if `__MM_CLI__` is set, `main.jsx` skips
+   React and calls `runCli`, which runs `runCommand` from `src/lib/commands.mjs` and
+   reports back with the `cli_finish` Tauri command. That prints the text and exits with
+   the code. A 120 s watchdog in Rust exits with code 2 if the page never answers (in a
+   debug build the Vite dev server must be running).
+4. **Commands** (`src/lib/commands.mjs`): pure logic, tested in `tests/commands.test.mjs`
+   with a fake driver. It's given a `ctx` for campaigns, files, backups and the clock.
+   `src/cli.js` wires `ctx` to the real thing; `openCampaignDriver` in `src/api.js` opens a
+   campaign without making it the active one.
+
+`cli_read_file` and `cli_write_file` exist because the webview's fs plugin is limited to
+the app data folder. They refuse to run unless the process was started with `--cli`.
+`AGENTS.md` at the repo root is bundled as a resource only by `tauri.ai.conf.json`
+(`bundle.resources`) and installs beside the exes. The Settings "For AI assistants" card
+asks Rust (`cli_launcher_path`) whether `magicminutes.exe` is next to the app and shows
+itself only if it is, so the standard edition never shows it.
+
+To try it in development, start `npm run dev`, run `cargo build --features cli` in
+`src-tauri` (without the feature the launcher isn't built), then run
+`src-tauri\target\debug\magicminutes.exe help`. **That opens your real campaign database**,
+so use `--campaign` with a throwaway campaign.
+
 ### Data
 
-Each collection (`notes`, `npcs`, `combos`, `groups`, `places`, `players`, `rolls`,
+Each collection (`notes`, `npcs`, `combos`, `groups`, `places`, `players`,
 `sessions`) is a SQLite table of `id TEXT PRIMARY KEY, doc TEXT` rows, where `doc` is the
 JSON document. `store.mjs` fills in defaults, so older documents missing newer fields still
 load.
+
+Databases from older versions may still hold a `rolls` table (the Fight Combos page used to
+save success/failure records). Nothing reads or writes it any more and the app leaves it
+alone; new campaigns don't create it. Old backup files with a `rolls` section still import:
+that section is skipped and the import says so.
 
 The app's bundle identifier is `com.oscar.ttrpgmap` and the database file is `ttrpgmap.db`,
 from before the app was renamed to MagicMinutes. They were kept on purpose: Tauri stores

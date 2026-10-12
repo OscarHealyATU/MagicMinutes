@@ -3,6 +3,7 @@ import { confirmDialog } from '../fileio.js';
 import { api } from '../api.js';
 import { NpcEditor, PlayerEditor, GroupsPanel } from '../components/CharacterEditor.jsx';
 import { useZoomShortcuts } from '../lib/useZoomShortcuts.js';
+import { truncateLabel } from '../lib/text.mjs';
 import {
   ALIGNMENT_BANDS,
   GROUP_COLORS,
@@ -50,14 +51,6 @@ function matches(npc, query) {
   return ['name', 'descriptor', 'race', 'occupation', 'location', 'notes'].some((f) =>
     (npc[f] || '').toLowerCase().includes(q)
   );
-}
-
-// SVG <text> never wraps or clips itself, so an unusually long name would
-// otherwise stretch clear across the canvas over every other node. Same cap
-// MapView's own truncateLabel uses for station names.
-function truncateLabel(text, max = 28) {
-  const t = (text || '').trim();
-  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }
 
 // The tree's root row (depth 0 — bosses, unaffiliated NPCs) lays out at y=0,

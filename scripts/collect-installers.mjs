@@ -29,14 +29,14 @@ const rename = (name) => (edition === 'ai' ? `MagicMinutes-AI_${name.slice('Magi
 
 mkdirSync(out, { recursive: true });
 let copied = 0;
-for (const kind of ['nsis', 'msi']) {
-  const dir = join(bundle, kind);
-  if (!existsSync(dir)) continue;
+// Releases build only the NSIS installer (`targets` in tauri.conf.json).
+const dir = join(bundle, 'nsis');
+if (existsSync(dir)) {
   for (const name of readdirSync(dir)) {
     const path = join(dir, name);
     if (!name.startsWith(prefix) || statSync(path).mtimeMs < since) continue;
     copyFileSync(path, join(out, rename(name)));
-    console.log(`${kind}: release-installers/${rename(name)}`);
+    console.log(`nsis: release-installers/${rename(name)}`);
     copied++;
   }
 }

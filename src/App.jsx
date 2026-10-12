@@ -98,12 +98,11 @@ export default function App() {
     api.sessions.active().then(setSession).catch(() => {});
   }
 
-  useEffect(refreshActiveSession, []);
-
-  // The sidebar's idea of "the active session" only ever came from that one
-  // fetch on mount, so a session started or ended somewhere else — an import
-  // on the Settings tab, or another window/instance — never showed up until
-  // a restart. Re-checking on every tab change and whenever the window
+  // The sidebar's idea of "the active session" would otherwise only come from
+  // one fetch, so a session started or ended somewhere else — an import on
+  // the Settings tab, or another window/instance — would never show up until
+  // a restart. Checking on every tab change (which includes the first render,
+  // so there is no separate fetch on start-up) and whenever the window
   // regains focus catches those without polling constantly.
   useEffect(refreshActiveSession, [tab]);
   useEffect(() => {

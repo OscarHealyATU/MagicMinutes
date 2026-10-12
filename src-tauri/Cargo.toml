@@ -5,6 +5,9 @@ description = "MagicMinutes - campaign notes, characters, places, and action com
 authors = ["Oscar Healy"]
 license = "MIT"
 edition = "2021"
+# Two programs live in this package (see [[bin]] below). Say which one is the app,
+# so `cargo run` and Tauri's bundler pick it as the main binary.
+default-run = "ttrpgmap"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -14,6 +17,21 @@ edition = "2021"
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "ttrpgmap_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+# The command-line front door: a small console program that runs the app in its
+# hidden --cli mode. No Tauri code in it. The installers put every non-main
+# [[bin]] next to the main exe, so it installs beside ttrpgmap.exe.
+#
+# It ships with the AI edition only: tauri.ai.conf.json turns the `cli` feature
+# on, and without it this binary isn't built or bundled. For development:
+#   cargo build --features cli
+[[bin]]
+name = "magicminutes"
+path = "src/bin/magicminutes.rs"
+required-features = ["cli"]
+
+[features]
+cli = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -26,4 +44,22 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# Smaller installer and exe. Only `tauri build` (release) uses these; debug
+# builds for development are unchanged.
+[profile.release]
+# Link-time optimisation: the linker looks across all crates and drops code the
+# app never calls.
+lto = true
+# One code-generation unit lets the compiler optimise the whole crate together.
+# The price is a slower build, which only matters for releases.
+codegen-units = 1
+# Remove symbol and debug info from the exe. Nothing at runtime needs it.
+strip = true
+# Optimise for size rather than speed. The app waits on the disk and the UI,
+# not on the CPU, so the speed difference isn't noticeable.
+opt-level = "s"
+# `panic = "abort"` is left out on purpose. It would shrink the exe a little more,
+# but a panic in one command would then close the whole app instead of failing
+# just that call.
 

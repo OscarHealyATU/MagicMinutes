@@ -30,14 +30,12 @@ function fmtDuration(start, end) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-export default function SessionsView({ reloadToken, focusId, onFocusUsed, onEnd, journalDefaultTitle }) {
+export default function SessionsView({ reloadToken, focusId, onFocusUsed, onEnd }) {
   const [sessions, setSessions] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [status, setStatus] = useState('');
   // "📖 Export journal" (see JournalExport.jsx) — every recap as a printable
-  // keepsake. `journalDefaultTitle` is a prop rather than a hard-coded
-  // string so a later change wiring this up to the active campaign's own
-  // name only has to pass that in here, not touch the dialog itself.
+  // keepsake.
   const [journalOpen, setJournalOpen] = useState(false);
   // The journal's cover defaults to the active campaign's name.
   const [campaignName, setCampaignName] = useState('');
@@ -389,7 +387,7 @@ export default function SessionsView({ reloadToken, focusId, onFocusUsed, onEnd,
       {journalOpen && (
         <JournalExport
           sessions={sessions}
-          defaultTitle={journalDefaultTitle || campaignName || 'Campaign journal'}
+          defaultTitle={campaignName || 'Campaign journal'}
           onClose={() => setJournalOpen(false)}
         />
       )}

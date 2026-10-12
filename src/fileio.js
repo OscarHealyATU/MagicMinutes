@@ -7,8 +7,7 @@ import { confirm, open, save } from '@tauri-apps/plugin-dialog';
 import { BaseDirectory, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { appDataDir, join } from '@tauri-apps/api/path';
-
-const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+import { inTauri } from './lib/env.mjs';
 
 export const JSON_FILTER = [{ name: 'JSON', extensions: ['json'] }];
 export const NOTES_FILTER = [{ name: 'MagicMinutes notes', extensions: ['json', 'txt'] }];

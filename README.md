@@ -48,7 +48,8 @@ characters, sessions — works for any campaign.
      except AI-written session summaries.
    - **MagicMinutes AI** (`MagicMinutes-AI_<version>_x64-setup.exe`, about 530 MB): the
      same app with a small AI model built in, which writes session summaries on your own
-     computer, offline.
+     computer, offline. It also comes with a [command-line tool](#using-magicminutes-from-an-ai-assistant-or-the-command-line)
+     for AI assistants.
 
    They're the same app with the same notes. Installing one over the other switches
    edition and keeps everything.
@@ -278,9 +279,7 @@ Work out a turn in advance, so you're not flipping through your sheet when it's 
    hidden*), and a **roll**.
 4. The **COMBO** bar underneath adds everything up and shows the most damage it can do.
 5. **🎲 Roll combo** rolls the attack and all the damage in one go. A natural 20 or a
-   natural 1 is highlighted. Then press **✓ Success** or **✗ Failed** to record how it went.
-   Rolled real dice instead? Type the damage into the **dmg** box before you press one.
-   **Cancel** throws the roll away.
+   natural 1 is highlighted. **Cancel** clears the roll.
 
 **What you can type in the roll box:**
 
@@ -351,6 +350,8 @@ your font style, so it prints in OpenDyslexic if that's what you read in.
   small print) each go from 80% to 150%. A live preview shows what every option changes.
 - **Keyboard shortcuts:** opens a list of every shortcut in the app.
 - **Backup & transfer:** export and import the campaign you're in — see below.
+- **For AI assistants:** (AI edition only) a closed-by-default card with the command to
+  give an AI assistant that can use a terminal — see [Using MagicMinutes from an AI assistant](#using-magicminutes-from-an-ai-assistant-or-the-command-line).
 - **Where your data lives:** the location of your campaign files on this computer.
 
 ---
@@ -366,7 +367,7 @@ means backups are up to you — but they only take two clicks.
 2. Click **⬇ Export everything** and choose where to save.
 
 You get one file, e.g. `magicminutes-backup-2026-09-14.json`, holding **your whole
-campaign**: notes, places, NPCs, groups, party, combos, dice rolls and session history.
+campaign**: notes, places, NPCs, groups, party, combos and session history.
 Keep a copy somewhere safe, like a USB stick or a cloud-synced folder.
 
 ### Import
@@ -444,6 +445,55 @@ file beside it.
 
 Uninstalling MagicMinutes **keeps** these files unless you tick the option to delete app
 data, so reinstalling brings your campaigns straight back.
+
+---
+
+## Using MagicMinutes from an AI assistant or the command line
+
+Most people never need this. The command-line tool comes with the **MagicMinutes AI**
+edition (the standard edition doesn't have it). If you use an AI assistant that can run
+terminal commands (Claude Code, for example), it can read and add notes in your campaigns
+for you, such as *"copy the notes in this file into my Curse of the Marsh campaign"*.
+
+Open **Settings → For AI assistants**, click **Copy**, and give the assistant that command.
+It looks like this, and prints a short list of commands the assistant can learn from:
+
+```text
+"C:\Users\<you>\AppData\Local\MagicMinutes\magicminutes.exe" help
+```
+
+You can also run it yourself from a terminal. In the examples below `magicminutes` stands
+for that full path:
+
+```text
+magicminutes campaigns                          list campaigns (* = the one the app has open)
+magicminutes campaigns add "Name"               new empty campaign
+magicminutes notes list [--limit 20] [--category Quest]
+magicminutes notes search "words"               title matches first
+magicminutes notes show <id>                    ids are the first 8 characters shown in lists
+magicminutes notes add --title "..." --text "..." [--place ..] [--tags a,b] [--category Quest]
+magicminutes notes import <file> [--yes]        text (=== Note === blocks) or notes JSON
+magicminutes notes export <file> [--search "words"]
+magicminutes export <file>                      whole-campaign backup
+magicminutes import <file> [--replace] [--yes]  merge a backup, or replace the campaign
+magicminutes run <file>                         several commands from a file, one per line
+```
+
+Add `--campaign "Name"` to work in a campaign other than the one the app has open (this
+never changes which one the app has open), `--json` for compact machine-readable output, and
+`--yes` to confirm. A short guide for assistants, `AGENTS.md`, is installed in the same
+folder.
+
+**Safety rules:**
+
+- Adding a note or a campaign happens straight away, and only ever adds.
+- Importing notes or a backup first prints a plan (how many added, replaced, deleted) and
+  changes nothing until the command is repeated with `--yes`.
+- `import --replace --yes` saves a safety backup of the campaign to the app's data folder
+  first, and stops if it can't.
+- There is no command that deletes a note or a campaign. Writing over an existing file
+  needs `--yes`.
+- If the app is open while a command runs, reload the page to see the changes.
 
 ---
 

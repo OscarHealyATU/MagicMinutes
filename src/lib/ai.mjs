@@ -3,6 +3,8 @@
 // preference. Outside Tauri (a plain browser) and in the standard edition, AI
 // is simply unavailable and the recap uses its plain summary.
 
+import { inTauri } from './env.mjs';
+
 export const AI_PREF_KEY = 'magicminutes.aiSummaries';
 
 // On unless switched off. localStorage can throw in locked-down webviews, so a
@@ -56,7 +58,6 @@ export function fitPrompt(prompt) {
   return `${prompt.slice(0, MAX_PROMPT_CHARS)}\n\n(The rest of the notes were left out because they were too long.)`;
 }
 
-const inTauri = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 async function invokeRust(cmd, args) {
   const { invoke } = await import('@tauri-apps/api/core');
@@ -67,7 +68,7 @@ async function invokeRust(cmd, args) {
 // whether this is the AI edition; `reason` says what's wrong when it is but
 // the AI can't run.
 export async function aiStatus() {
-  if (!inTauri()) return { installed: false, available: false, model: null, reason: null };
+  if (!inTauri) return { installed: false, available: false, model: null, reason: null };
   try {
     return await invokeRust('ai_status');
   } catch (e) {
@@ -114,7 +115,7 @@ export function visibleSoFar(raw) {
 // The graphics cards the AI can use, by name. [] when there are none, outside
 // Tauri, or in the standard edition. Never throws.
 export async function aiGpus() {
-  if (!inTauri()) return [];
+  if (!inTauri) return [];
   try {
     return await invokeRust('ai_gpus');
   } catch {

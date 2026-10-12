@@ -5,7 +5,7 @@ import BlockStack from '../components/BlockStack.jsx';
 import { combineBlocks, rollCombo } from '../lib/dice.mjs';
 import { useAutosave } from '../lib/useAutosave.js';
 
-export const BLOCK_TYPES = [
+const BLOCK_TYPES = [
   { id: 'action', label: 'Action', color: '#70250a', hint: 'Attack, Cast a Spell, Dash…' },
   { id: 'bonus', label: 'Bonus Action', color: '#6d411c', hint: 'Off-hand attack, Healing Word…' },
   { id: 'reaction', label: 'Reaction', color: '#485354', hint: 'Opportunity attack, Shield…' },
@@ -18,55 +18,22 @@ export const BLOCK_TYPES = [
 
 const typeInfo = (id) => BLOCK_TYPES.find((t) => t.id === id) || BLOCK_TYPES[7];
 
-// The COMBO total row + roll/log footer that replaced the old dice calculator.
-// Everything is derived live from the blocks' roll/condition fields.
+// The COMBO total row + roll footer. Everything is derived live from the
+// blocks' roll/condition fields.
 function ComboTotal({ combo }) {
   const [result, setResult] = useState(null);
-  const [logMsg, setLogMsg] = useState('');
-  const [manualDmg, setManualDmg] = useState('');
 
   const combined = useMemo(() => combineBlocks(combo.blocks), [combo.blocks]);
 
   // Clear a stale roll when the combo's dice change or another combo is selected
   useEffect(() => {
     setResult(null);
-    setManualDmg('');
   }, [combo._id, combined.notation, combined.hitLabel]);
 
   const primary = combo.blocks.find((b) => b.type === 'action' && b.text) || null;
 
   function doRoll() {
     setResult(rollCombo(combined));
-  }
-
-  async function logOutcome(outcome) {
-    const sizes = Object.keys(combined.dice).map(Number).sort((a, b) => b - a);
-    // A typed damage total (physical dice) wins over the in-app roll
-    const manualTotal = manualDmg.trim() === '' ? null : Number(manualDmg);
-    const manual = manualTotal != null && !Number.isNaN(manualTotal);
-    try {
-      await api.create('rolls', {
-        comboId: combo._id,
-        comboName: combo.name,
-        notation: combined.notation || combined.hitLabel || '',
-        die: manual || result?.damageRolls?.length ? sizes[0] || 0 : result?.d20s ? 20 : 0,
-        rolls: manual
-          ? []
-          : result?.damageRolls?.length
-            ? result.damageRolls.map((d) => d.value)
-            : result?.d20s || [],
-        modifier: manual || result?.damageRolls?.length ? combined.mod : combined.toHit,
-        total: manual ? manualTotal : result?.damageTotal ?? result?.attackTotal ?? 0,
-        outcome,
-        manual
-      });
-      setResult(null);
-      setManualDmg('');
-      setLogMsg(`Logged as ${outcome} — no peeking mid-game!`);
-      setTimeout(() => setLogMsg(''), 3000);
-    } catch (e) {
-      setLogMsg(`Couldn't log that roll: ${e.message}`);
-    }
   }
 
   const hasAnything = combined.notation || combined.hitLabel;
@@ -131,28 +98,13 @@ function ComboTotal({ combo }) {
         {result && (
           <button
             className="btn cancel-roll"
-            title="Discard this roll without logging it"
+            title="Clear this roll"
             onClick={() => setResult(null)}
           >
             Cancel
           </button>
         )}
-
-        <span className="combo-roll-spacer" />
-        <span className="outcome-hint">{result ? 'How did it go?' : 'Log an attempt:'}</span>
-        <input
-          className="dmg-input"
-          type="number"
-          min="0"
-          value={manualDmg}
-          placeholder="dmg"
-          title="Rolled physical dice? Type the damage total here before logging"
-          onChange={(e) => setManualDmg(e.target.value)}
-        />
-        <button className="btn outcome-success" onClick={() => logOutcome('success')}>✓ Success</button>
-        <button className="btn outcome-failure" onClick={() => logOutcome('failure')}>✗ Failed</button>
       </div>
-      {logMsg && <div className="status-text">{logMsg}</div>}
     </div>
   );
 }

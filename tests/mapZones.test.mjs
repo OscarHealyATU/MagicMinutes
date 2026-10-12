@@ -5,7 +5,6 @@ import assert from 'node:assert/strict';
 import {
   buildContainment,
   buildEdges,
-  clampPointToRect,
   clampRectInRect,
   AREA_MARKER_R,
   AREA_TEXT_SHIFT,
@@ -35,12 +34,10 @@ import {
   packLayout,
   pointInOctagon,
   pushRectClear,
-  resizeLimits,
   scaleTextMetrics,
   stationFootprint,
   TEXT_METRICS,
-  zoneFillStyle,
-  zoneRects
+  zoneFillStyle
 } from '../src/lib/mapZones.mjs';
 
 let passed = 0;
@@ -295,7 +292,7 @@ await test('isZone: a Landmark with a child becomes a zone', () => {
   assert.equal(isZone({ _id: 'a', type: 'Landmark' }, containment), true);
 });
 
-// ---------- zoneRects ----------
+// ---------- layoutZones (zones) ----------
 
 function makeVarrowPlacesTyped() {
   const places = makeVarrowPlaces();
@@ -330,7 +327,7 @@ function rectInRect(inner, outer) {
   );
 }
 
-await test('zoneRects: every member stop and child zone sits inside its zone, outer before inner', () => {
+await test('layoutZones (zones): every member stop and child zone sits inside its zone, outer before inner', () => {
   const places = makeVarrowPlacesTyped();
   const edges = buildEdges(places);
   const containment = buildContainment(places, edges);
@@ -374,7 +371,7 @@ await test('zoneRects: every member stop and child zone sits inside its zone, ou
   }
 });
 
-await test('zoneRects: zones are always square, so they draw as regular octagons', () => {
+await test('layoutZones (zones): zones are always square, so they draw as regular octagons', () => {
   const { places, containment } = (() => {
     const ps = [
       { _id: 'city', name: 'City', type: 'City', connections: [] },
@@ -393,12 +390,12 @@ await test('zoneRects: zones are always square, so they draw as regular octagons
   assert.ok(squareFits(z.rect, z.contentBounds), 'contents clear the cut corners');
 });
 
-await test('zoneRects: a saved square grows evenly to cover new contents but never shrinks; a stretched legacy size is ignored', () => {
+await test('layoutZones (zones): a saved square grows evenly to cover new contents but never shrinks; a stretched legacy size is ignored', () => {
   const places = [
     { _id: 'city', name: 'City', type: 'City', connections: [], mapX: 0, mapY: 0, mapW: 500, mapH: 500 }
   ];
   const containment = { childrenOf: {}, depthOf: { city: 0 } };
-  const rect = zoneRects(places, { city: { x: 0, y: 0 } }, containment)[0].rect;
+  const rect = layoutZones(places, { city: { x: 0, y: 0 } }, containment).zones[0].rect;
   assert.deepEqual(rect, { x: 0, y: 0, w: 500, h: 500 });
 
   const places2 = [
@@ -415,14 +412,14 @@ await test('zoneRects: a saved square grows evenly to cover new contents but nev
   assert.ok(r.x <= 0 && r.y <= 0 && r.x + r.w >= 500 && r.y + r.h >= 500, 'still covers where it was');
 
   const legacy = [{ _id: 'city', name: 'City', type: 'City', connections: [], mapX: 0, mapY: 0, mapW: 1500, mapH: 300 }];
-  const lr = zoneRects(legacy, { city: { x: 0, y: 0 } }, containment)[0].rect;
+  const lr = layoutZones(legacy, { city: { x: 0, y: 0 } }, containment).zones[0].rect;
   assert.ok(lr.w < 1500 && lr.w === lr.h, 'an old stretched size is not blown up into a huge square');
 });
 
-await test('zoneRects: a childless zone (bare City/Region) gets the minimum square', () => {
+await test('layoutZones (zones): a childless zone (bare City/Region) gets the minimum square', () => {
   const places = [{ _id: 'city', name: 'Lonely City', type: 'City', connections: [] }];
   const containment = { childrenOf: {}, depthOf: { city: 0 } };
-  const zones = zoneRects(places, { city: { x: 50, y: 50 } }, containment, { minW: 120, minH: 80 });
+  const zones = layoutZones(places, { city: { x: 50, y: 50 } }, containment, { minW: 120, minH: 80 }).zones;
   assert.equal(zones[0].rect.w, 120);
   assert.equal(zones[0].rect.h, 120);
   assert.equal(zones[0].rect.x + 60, 50, 'centred on its anchor');
@@ -497,9 +494,9 @@ await test('scaleTextMetrics composes with stationFootprint: a bigger scale rese
   assert.ok(bigger.down > base.down);
 });
 
-// ---------- zoneRects with footprints/per-zone headers ----------
+// ---------- layoutZones (zones) with footprints/per-zone headers ----------
 
-await test('zoneRects: a member\'s text footprint, not just its point, is covered by the zone rect (Upper Esterly case)', () => {
+await test('layoutZones (zones): a member\'s text footprint, not just its point, is covered by the zone rect (Upper Esterly case)', () => {
   const places = [
     { _id: 'upperEsterly', name: 'Upper Esterly', type: 'City', connections: [] },
     { _id: 'moonspireTowers', name: 'The Moonspire Towers', type: 'Landmark', connections: [] }
@@ -515,13 +512,13 @@ await test('zoneRects: a member\'s text footprint, not just its point, is covere
     nameLength: 'The Moonspire Towers'.length
   });
   const pad = 36;
-  const zones = zoneRects(places, positions, containment, { pad, footprintOf: (id) => (id === 'moonspireTowers' ? footprint : null) });
+  const zones = layoutZones(places, positions, containment, { pad, footprintOf: (id) => (id === 'moonspireTowers' ? footprint : null) }).zones;
   const rect = zones[0].rect;
   assert.ok(rect.x + rect.w >= positions.moonspireTowers.x + footprint.right + pad, 'rect should reach past the station\'s footprint on the right');
   assert.ok(rect.y + rect.h >= positions.moonspireTowers.y + footprint.down + pad, 'rect should reach past the station\'s footprint on the bottom');
 });
 
-await test('zoneRects: opts.headerOf reserves a per-zone header above the places (Anvils case)', () => {
+await test('layoutZones (zones): opts.headerOf reserves a per-zone header above the places (Anvils case)', () => {
   const places = [
     { _id: 'anvils', name: 'Anvils', type: 'City', connections: [] },
     { _id: 'saltedBoar', name: 'The Salted Boar', type: 'Shop / Inn', connections: [] }
@@ -543,7 +540,7 @@ await test('zoneRects: opts.headerOf reserves a per-zone header above the places
   assert.ok(zone(header).rect.w > zone(28).rect.w, 'a taller header makes a bigger octagon');
 });
 
-await test('zoneRects: a headerOf of exactly 0 is honoured, not replaced by the labelHeadroom fallback', () => {
+await test('layoutZones (zones): a headerOf of exactly 0 is honoured, not replaced by the labelHeadroom fallback', () => {
   // `?? labelHeadroom` (not `|| labelHeadroom`) is what makes a real 0 stick.
   const places = [
     { _id: 'zone', name: 'Zone', type: 'City', connections: [] },
@@ -551,25 +548,15 @@ await test('zoneRects: a headerOf of exactly 0 is honoured, not replaced by the 
   ];
   const containment = { childrenOf: { zone: ['member'] }, depthOf: { zone: 0 } };
   const positions = { zone: { x: 0, y: 0 }, member: { x: 100, y: 100 } };
-  const zones = zoneRects(places, positions, containment, {
+  const zones = layoutZones(places, positions, containment, {
     pad: 36,
     footprintOf: () => ({ right: 0, down: 0 }),
     headerOf: () => 0
-  });
+  }).zones;
   assert.equal(zones[0].contentBounds.y, 100 - 16 - 36 - 0);
 });
 
-// ---------- clamping a station's footprint inside its zone ----------
-
-await test('clampPointToRect: asymmetric right/bottom margins keep a dragged footprint fully inside its zone', () => {
-  const rect = { x: 0, y: 0, w: 400, h: 300 };
-  const footprint = { right: 150, down: 80 };
-  const pad = 36;
-  const clamped = clampPointToRect({ x: 5000, y: 5000 }, rect, pad, pad + footprint.right, pad + footprint.down);
-  assert.deepEqual(clamped, { x: 400 - 36 - 150, y: 300 - 36 - 80 });
-});
-
-// ---------- pushRectClear / resizeLimits ----------
+// ---------- pushRectClear ----------
 
 await test('pushRectClear: a dragged zone slides out of a sibling by the smallest move, keeping the gap', () => {
   const sibling = { x: 200, y: 0, w: 200, h: 200 };
@@ -591,16 +578,6 @@ await test('pushRectClear: a rect already clear (gap included) is untouched, and
   const settled = pushRectClear({ x: 90, y: 0, w: 150, h: 50 }, [a, b], 32);
   const gapTo = (r, o) => Math.max(o.x - (r.x + r.w), r.x - (o.x + o.w), o.y - (r.y + r.h), r.y - (o.y + o.h));
   assert.ok(gapTo(settled, a) >= 32 || gapTo(settled, b) >= 32, 'must be clear of at least one sibling after settling');
-});
-
-await test('resizeLimits: growth stops short of a sibling to the right or below, ignores ones elsewhere', () => {
-  const rect = { x: 0, y: 0, w: 100, h: 100 };
-  const right = { x: 300, y: 20, w: 50, h: 50 };   // shares rows -> limits width
-  const below = { x: 20, y: 250, w: 50, h: 50 };   // shares cols -> limits height
-  const away = { x: 300, y: 300, w: 50, h: 50 };   // diagonal -> limits nothing
-  const above = { x: 0, y: -200, w: 50, h: 50 };   // above -> limits nothing
-  assert.deepEqual(resizeLimits(rect, [right, below, away, above], 32), { maxW: 300 - 32, maxH: 250 - 32 });
-  assert.deepEqual(resizeLimits(rect, [], 32), { maxW: Infinity, maxH: Infinity });
 });
 
 // ---------- packLayout with footprints ----------
@@ -673,17 +650,7 @@ await test('packLayout: footprint-aware stations packed into the same zone never
   assert.equal(positions.s4.y - positions.s1.y, expectedPitchY, 'row pitch (after wrapping at perRow=3) should reserve footprint.down + 16');
 });
 
-// ---------- clampPointToRect / clampRectInRect ----------
-
-await test('clampPointToRect: a point already inside is unchanged', () => {
-  const rect = { x: 0, y: 0, w: 100, h: 100 };
-  assert.deepEqual(clampPointToRect({ x: 50, y: 60 }, rect, 10), { x: 50, y: 60 });
-});
-
-await test('clampPointToRect: pushes an outside point to the inset edge', () => {
-  const rect = { x: 0, y: 0, w: 100, h: 100 };
-  assert.deepEqual(clampPointToRect({ x: -20, y: 500 }, rect, 10), { x: 10, y: 90 });
-});
+// ---------- clampRectInRect ----------
 
 await test('clampRectInRect: a rect already inside is unchanged', () => {
   const parent = { x: 0, y: 0, w: 200, h: 200 };
@@ -789,7 +756,7 @@ await test('pointInOctagon: corners are cut, the middle and flat edges are not',
 });
 
 await test('octagon zones never clip content clamped with the normal zone padding', () => {
-  // clampPointToRect keeps stops (and the far corner of their text) at least
+  // The drag clamp keeps stops (and the far corner of their text) at least
   // `pad` in from each edge; even the biggest cut must leave those inside.
   const pad = 36;
   for (const [w, h] of [[120, 80], [260, 180], [900, 500], [2000, 1400]]) {

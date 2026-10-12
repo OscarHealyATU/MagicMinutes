@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 const ZOOM_IN = 1.15;
 const ZOOM_OUT = 0.87;
 
-function isTypingTarget(el) {
+export function isTypingTarget(el) {
   if (!el) return false;
   const tag = el.tagName;
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;

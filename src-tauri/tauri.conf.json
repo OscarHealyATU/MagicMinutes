@@ -44,7 +44,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
     "publisher": "Oscar Healy",
     "icon": [
       "icons/32x32.png",
