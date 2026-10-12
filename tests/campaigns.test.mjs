@@ -193,20 +193,30 @@ await test('getActiveCampaign: falls back to default if the stored active id was
   assert.equal(active._id, campaigns.DEFAULT_CAMPAIGN_ID, 'a dangling active id must not break loading');
 });
 
-// ---------- lastOpenedAt ----------
+// ---------- rows written by older versions ----------
 
-await test('touchLastOpened: sets lastOpenedAt without disturbing name/file/createdAt', async () => {
+await test('a registry row that still carries lastOpenedAt lists and renames fine', async () => {
   const driver = makeFakeDriver();
   await campaigns.ensureRegistryTable(driver);
-  const deps = makeClock();
-  const created = await campaigns.createCampaign(driver, 'Touchable', deps);
-  assert.equal(created.lastOpenedAt, null);
+  const old = { name: 'Old', file: 'campaign-old.db', createdAt: '2026-01-01T00:00:00.000Z', lastOpenedAt: '2026-02-02T00:00:00.000Z' };
+  await driver.execute('INSERT INTO campaigns (id, doc) VALUES ($1, $2)', ['old', JSON.stringify(old)]);
 
-  const touched = await campaigns.touchLastOpened(driver, created._id, deps);
-  assert.ok(touched.lastOpenedAt, 'lastOpenedAt should now be set');
-  assert.equal(touched.name, created.name);
-  assert.equal(touched.file, created.file);
-  assert.equal(touched.createdAt, created.createdAt);
+  const listed = (await campaigns.listCampaigns(driver)).find((c) => c._id === 'old');
+  assert.equal(listed.name, 'Old');
+  const renamed = await campaigns.renameCampaign(driver, 'old', 'Newer');
+  assert.equal(renamed.name, 'Newer');
+  assert.equal(renamed.file, old.file);
+  assert.equal(renamed.createdAt, old.createdAt);
+  assert.equal('lastOpenedAt' in renamed, false, 'the unused field is dropped on rewrite');
+});
+
+await test('new campaigns, and the implicit default, carry no lastOpenedAt', async () => {
+  const driver = makeFakeDriver();
+  await campaigns.ensureRegistryTable(driver);
+  const created = await campaigns.createCampaign(driver, 'Fresh', makeClock());
+  assert.equal('lastOpenedAt' in created, false);
+  const list = await campaigns.listCampaigns(driver);
+  assert.equal('lastOpenedAt' in list.find((c) => c._id === campaigns.DEFAULT_CAMPAIGN_ID), false);
 });
 
 // ---------- delete rules ----------

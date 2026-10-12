@@ -875,71 +875,7 @@ input:focus, select:focus, textarea:focus {
   color: #b6c2c3;
 }
 
-/* ---------- Dice roller ---------- */
-
-.dice-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px 16px;
-  margin-bottom: 30px;
-}
-
-.dice-panel-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-}
-
-.mode-toggle {
-  display: flex;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.manual-input {
-  flex: 1;
-  min-width: 180px;
-}
-
-.dice-warning {
-  font-size: calc(12px * var(--ts-small, 1));
-  color: var(--bad);
-}
-
-.manual-tag {
-  font-size: calc(11px * var(--ts-small, 1));
-  color: var(--text-dim);
-  margin-left: 8px;
-}
-
-.dice-controls {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.dice-buttons {
-  display: flex;
-  gap: 4px;
-}
-
-.die-active {
-  background: var(--accent);
-  border-color: var(--accent-strong);
-  color: var(--text);
-}
-
-.mod-input {
-  width: 70px;
-}
+/* ---------- Dice results (the Fight Combos roll display) ---------- */
 
 .dice-result {
   display: flex;
@@ -993,34 +929,9 @@ input:focus, select:focus, textarea:focus {
   margin-left: 6px;
 }
 
-.dice-outcome {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
 .outcome-hint {
   font-size: calc(12px * var(--ts-small, 1));
   color: var(--text-dim);
-}
-
-.btn.outcome-success {
-  border-color: #3f5e3a;
-  color: var(--good);
-}
-
-.btn.outcome-success:hover {
-  background: rgba(63, 94, 58, 0.3);
-}
-
-.btn.outcome-failure {
-  border-color: var(--danger);
-  color: var(--bad);
-}
-
-.btn.outcome-failure:hover {
-  background: rgba(112, 37, 10, 0.3);
 }
 
 /* ---------- Tube map ---------- */
@@ -1090,13 +1001,6 @@ input:focus, select:focus, textarea:focus {
   letter-spacing: 0.5px;
   color: var(--text-dim);
   margin-top: 4px;
-}
-
-.map-info-npc {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: calc(13px * var(--ts-body, 1));
 }
 
 .map-npc-dot {
@@ -1408,10 +1312,6 @@ svg.map-legend-swatch {
   flex-wrap: wrap;
 }
 
-.combo-roll-spacer {
-  flex: 1;
-}
-
 .inline-result {
   flex-wrap: wrap;
 }
@@ -1423,37 +1323,6 @@ svg.map-legend-swatch {
 
 .btn.cancel-roll:hover {
   background: rgba(72, 83, 84, 0.3);
-}
-
-.dmg-input {
-  width: 64px;
-  padding: 7px 8px;
-  background: #2a3439;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: calc(15px * var(--ts-body, 1));
-  font-weight: bold;
-  text-align: center;
-}
-
-.dmg-input::placeholder {
-  color: var(--text-dim);
-  font-weight: normal;
-  font-size: calc(12px * var(--ts-small, 1));
-}
-
-.dmg-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-/* Hide number-input spinners; damage totals get typed, not clicked */
-.dmg-input::-webkit-outer-spin-button,
-.dmg-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
 }
 
 /* ================= Sidebar groups ================= */
@@ -2418,6 +2287,43 @@ svg.map-legend-swatch {
   word-break: break-all;
 }
 
+/* A settings card that starts closed (Settings → For AI assistants): the
+   summary line stands in for the card's h3. */
+.settings-collapse > summary {
+  cursor: pointer;
+  font-family: Georgia, serif;
+  font-size: calc(15px * var(--ts-headings, 1));
+  font-weight: bold;
+}
+
+.settings-collapse[open] > summary {
+  margin-bottom: 10px;
+}
+
+.settings-collapse-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cli-command {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.cli-command code {
+  flex: 1 1 260px;
+  min-width: 0;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 8px;
+  font-size: calc(12px * var(--ts-small, 1));
+  word-break: break-all;
+}
+
 .settings-counts {
   display: flex;
   flex-wrap: wrap;
@@ -3182,8 +3088,8 @@ svg.map-legend-swatch {
   font-family: var(--font-heading);
 }
 
-/* "Map text" (station/NPC/zone labels, the note/NPC mini-lists) plus the one
-   input with its own explicit font — these read as body content, not chrome. */
+/* "Map text" (station/NPC/zone labels, the note/NPC mini-lists) and the
+   Appearance preview's sample text — these read as body content, not chrome. */
 :is([data-font="easy-read"], [data-font="opendyslexic"])
   :is(
     .map-station-label,
@@ -3193,7 +3099,6 @@ svg.map-legend-swatch {
     .map-list-note,
     .map-list-npc,
     .map-list-more,
-    .dmg-input,
     .preview-demo-body
   ) {
   font-family: var(--font-body);

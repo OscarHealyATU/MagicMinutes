@@ -146,19 +146,11 @@ await test('places: defaults applied on create (connections: [], mapX/mapY: null
   assert.equal(place.mapY, null);
 });
 
-await test('rolls: defaults applied on create (manual: false, outcome: none)', async () => {
+await test('rolls is no longer a collection: no table is created for it and it cannot be used', async () => {
   const driver = makeFakeDriver();
   await store.ensureTables(driver);
-  const deps = makeClock();
-
-  const roll = await store.createDoc(driver, 'rolls', {}, deps);
-  assert.equal(roll.comboId, '');
-  assert.equal(roll.die, 0);
-  assert.deepEqual(roll.rolls, []);
-  assert.equal(roll.modifier, 0);
-  assert.equal(roll.total, 0);
-  assert.equal(roll.outcome, 'none');
-  assert.equal(roll.manual, false);
+  assert.equal(store.COLLECTIONS.includes('rolls'), false);
+  await assert.rejects(() => store.createDoc(driver, 'rolls', {}, makeClock()), /Unknown resource/);
 });
 
 await test('npcs, players and groups: defaults applied on create', async () => {

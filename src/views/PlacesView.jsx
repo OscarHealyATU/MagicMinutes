@@ -75,6 +75,11 @@ export default function PlacesView({ focusId, onFocusUsed }) {
 
   const selected = places.find((p) => p._id === selectedId) || null;
 
+  // Fetched once, when the tab opens. A place opened from the Map arrives as
+  // `focusId` on that first render (each tab is mounted fresh when you switch
+  // to it), so it is selected here, once the list holds it, and then handed
+  // back with onFocusUsed. Depending on focusId would refetch the list the
+  // moment onFocusUsed clears it.
   useEffect(() => {
     api.list('places').then((docs) => {
       setPlaces(docs);
@@ -84,7 +89,7 @@ export default function PlacesView({ focusId, onFocusUsed }) {
       }
     }).catch((e) => setStatus(e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusId]);
+  }, []);
 
   const autosave = useAutosave({
     id: selected?._id ?? null,

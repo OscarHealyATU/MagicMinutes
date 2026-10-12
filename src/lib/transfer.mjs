@@ -112,23 +112,6 @@ function cleanCombo(doc) {
   });
 }
 
-function cleanRoll(doc) {
-  return withMeta(doc, {
-    comboId: str(doc.comboId),
-    comboName: str(doc.comboName),
-    notation: str(doc.notation),
-    die: numOr(doc.die, 0),
-    // Individual die faces are numbers; a stray object here would reach a
-    // view as a React child and throw ("Objects are not valid as a React
-    // child"), so each entry is coerced rather than just the array shape.
-    rolls: arr(doc.rolls).map((r) => numOr(r, 0)),
-    modifier: numOr(doc.modifier, 0),
-    total: numOr(doc.total, 0),
-    outcome: str(doc.outcome) || 'none',
-    manual: bool(doc.manual)
-  });
-}
-
 function cleanSession(doc) {
   const activity = arr(doc.activity)
     .filter((a) => a && typeof a === 'object')
@@ -155,7 +138,6 @@ const CLEANERS = {
   players: cleanPlayer,
   groups: cleanGroup,
   combos: cleanCombo,
-  rolls: cleanRoll,
   sessions: cleanSession
 };
 

@@ -1,7 +1,6 @@
-// Drop-in replacement for the old fetch-based client/src/api.js. Same exported
-// shape (`api.list/create/update/remove/sessions.*`) so the React views need no
-// changes, but backed by a local SQLite file via @tauri-apps/plugin-sql instead
-// of an Express + MongoDB server.
+// The data layer the React views call: `api.list/create/update/remove/sessions.*`,
+// backed by a local SQLite file via @tauri-apps/plugin-sql (or an in-memory
+// stand-in in a plain browser — see below).
 //
 // All the actual document-store logic (defaults, id/timestamp handling, patch
 // merge, sorting, session recap) lives in ./lib/store.mjs, which is driver-
@@ -23,6 +22,7 @@
 import Database from '@tauri-apps/plugin-sql';
 import { BaseDirectory, remove } from '@tauri-apps/plugin-fs';
 import { appDataDir, join } from '@tauri-apps/api/path';
+import { inTauri } from './lib/env.mjs';
 import * as store from './lib/store.mjs';
 import * as campaigns from './lib/campaigns.mjs';
 import { buildExport } from './lib/transfer.mjs';
@@ -38,11 +38,10 @@ import {
 let homeDbPromise = null; // the registry, and (when active) the default campaign's own db
 let dbPromise = null; // whichever campaign is currently active
 
-// Under Tauri, a real SQLite file. In a plain browser (vite dev without the
-// Tauri shell), an in-memory driver seeded with demo data so the frontend can
-// be developed and design-checked without the Rust side.
-const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-
+// Under Tauri a campaign is a real SQLite file (opened by this path). In a
+// plain browser (vite dev without the Tauri shell) an in-memory driver seeded
+// with demo data stands in, so the frontend can be developed and design-checked
+// without the Rust side.
 function sqlitePath(file) {
   return `sqlite:${file}`;
 }
@@ -66,26 +65,53 @@ function getHomeDb() {
 // connection rather than opening ttrpgmap.db a second time.
 async function openActiveCampaignDb(homeDb) {
   const active = await campaigns.getActiveCampaign(homeDb);
-  // Best-effort: a failed/slow write here must never block opening the db.
-  campaigns.touchLastOpened(homeDb, active._id).catch(() => {});
+  return openCampaignDb(homeDb, active);
+}
 
+// Opens one given campaign's connection and makes sure its tables exist. Says
+// nothing about which campaign is active — that is a separate pointer in the
+// registry, which only `campaigns.switchTo` moves.
+async function openCampaignDb(homeDb, campaign) {
   if (!inTauri) {
-    const isNew = !hasBrowserCampaignDriver(active._id);
-    const driver = getBrowserCampaignDriver(active._id);
+    const isNew = !hasBrowserCampaignDriver(campaign._id);
+    const driver = getBrowserCampaignDriver(campaign._id);
     await store.ensureTables(driver);
     // Demo data only ever seeds the browser's default campaign, and only
     // the first time its driver is created in this JS lifetime.
-    if (isNew && active._id === campaigns.DEFAULT_CAMPAIGN_ID) await seedDemoData(driver);
+    if (isNew && campaign._id === campaigns.DEFAULT_CAMPAIGN_ID) await seedDemoData(driver);
     return driver;
   }
 
-  if (active._id === campaigns.DEFAULT_CAMPAIGN_ID) {
+  if (campaign._id === campaigns.DEFAULT_CAMPAIGN_ID) {
     await store.ensureTables(homeDb);
     return homeDb;
   }
-  const db = await Database.load(sqlitePath(active.file));
+  const db = await Database.load(sqlitePath(campaign.file));
   await store.ensureTables(db);
   return db;
+}
+
+// For the command line (src/cli.js): the driver for one named campaign,
+// without making it the active one, so a command run against a campaign never
+// changes what the app opens next.
+export async function openCampaignDriver(id) {
+  const homeDb = await getHomeDb();
+  const campaign = id ? await campaigns.getCampaign(homeDb, id) : await campaigns.getActiveCampaign(homeDb);
+  return { campaign, driver: await openCampaignDb(homeDb, campaign) };
+}
+
+// Closes every database connection this process opened. The command-line
+// mode calls it before exiting: a clean close lets SQLite fold its
+// write-ahead log back into the .db file and remove the -wal/-shm side files,
+// so the .db on its own is always the whole campaign (someone backing up by
+// copying that one file shouldn't miss a note the CLI just added).
+export async function closeAllDatabases() {
+  if (!inTauri || !homeDbPromise) return;
+  const homeDb = await homeDbPromise;
+  // With no path, plugin-sql closes every pool, not just this one.
+  await homeDb.close();
+  homeDbPromise = null;
+  dbPromise = null;
 }
 
 function getDb() {

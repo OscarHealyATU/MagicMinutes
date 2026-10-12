@@ -14,7 +14,6 @@ import {
   isAreaStop,
   labelInset,
   layoutZones,
-  LOBE_DEFAULTS,
   lobesAttachPoint,
   lobesPath,
   octagonPath,
@@ -28,11 +27,12 @@ import {
   zoneFillStyle,
   zoneKind
 } from '../lib/mapZones.mjs';
-import { useZoomShortcuts } from '../lib/useZoomShortcuts.js';
+import { computeLayout, GRID } from '../lib/mapLayout.mjs';
+import { truncateLabel } from '../lib/text.mjs';
+import { isTypingTarget, useZoomShortcuts } from '../lib/useZoomShortcuts.js';
 import { matchesShortcut, SHORTCUTS } from '../lib/shortcuts.mjs';
 import MapFind from '../components/MapFind.jsx';
 
-const GRID = 40;
 // The zone/footprint geometry below (TEXT_METRICS) is calibrated for the
 // default Quintessential label text. Easy-read (Comic Neue) and especially
 // OpenDyslexic render noticeably wider at the same pixel size, which — left
@@ -57,7 +57,7 @@ function metricsForFont(fontStyle, colorBlind = false, mapScale = 1) {
   return colorBlind ? { ...base, npcPrefix: '[?] ' } : base;
 }
 // Shared geometry so a freshly auto-arranged zone's saved size matches what
-// zoneRects would compute anyway — no extra "grow" pass needed right after.
+// layoutZones would compute anyway — no extra "grow" pass needed right after.
 const ZONE_GEOMETRY = { pad: 36, labelHeadroom: 28, minW: 120, minH: 80 };
 // Sibling zones (same parent, or both at the root) are kept at least this far
 // apart — by packLayout when auto-arranging, and by the drag/resize handlers.
@@ -70,143 +70,12 @@ const RESIZE_HANDLE = 12;
 // leave Ctrl+F answering to a different key than the list says it does.
 const FIND_SHORTCUT = SHORTCUTS.find((s) => s.action === 'Find a place or zone');
 
-function isTypingTarget(el) {
-  if (!el) return false;
-  const tag = el.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
-}
-
 const connInfo = (id) =>
   CONNECTION_TYPES.find((t) => t.id === id) || CONNECTION_TYPES[CONNECTION_TYPES.length - 1];
 
 // `inside` / `contains` blocks are drawn as zones (see mapZones.mjs), not as
 // lines — everything else on the tube map is still a coloured line.
 const isContainmentType = (type) => type === 'inside' || type === 'contains';
-
-// Simple force layout for stations without a saved position, snapped to the
-// grid. `containment` (from buildContainment) additionally seeds a place
-// with no saved position next to its parent instead of the global circle,
-// and nudges the simulation so children drift toward their parent while
-// unrelated stations drift away from other zones' centres.
-function computeLayout(places, edges, containment, ignoreSaved = false) {
-  const ids = places.map((p) => p._id);
-  const pos = {};
-  const free = new Set();
-  const parentOf = (containment && containment.parentOf) || {};
-  const childrenOf = (containment && containment.childrenOf) || {};
-
-  places.forEach((p) => {
-    if (!ignoreSaved && p.mapX != null && p.mapY != null) {
-      pos[p._id] = { x: p.mapX, y: p.mapY };
-    } else {
-      free.add(p._id);
-    }
-  });
-
-  // Seed free places next to their parent when the parent already has a
-  // position — as many passes as there are places, so a containment chain
-  // of any depth fully propagates (a grandchild picks up a parent that was
-  // itself only just seeded this way, and so on down the chain).
-  const seedPasses = Math.max(1, ids.length);
-  for (let pass = 0; pass < seedPasses; pass++) {
-    for (const id of ids) {
-      if (pos[id] || !free.has(id)) continue;
-      const parentPos = pos[parentOf[id]];
-      if (parentPos) {
-        pos[id] = {
-          x: parentPos.x + (Math.random() - 0.5) * 90,
-          y: parentPos.y + (Math.random() - 0.5) * 90
-        };
-      }
-    }
-  }
-
-  // Anything left with no placeable parent falls back to the original ring.
-  places.forEach((p, i) => {
-    if (pos[p._id]) return;
-    const angle = (2 * Math.PI * i) / Math.max(places.length, 1);
-    pos[p._id] = {
-      x: 460 + 230 * Math.cos(angle) + (i % 3) * 15,
-      y: 320 + 230 * Math.sin(angle)
-    };
-  });
-
-  // Zone membership (self + every descendant), computed once up front for
-  // the weak "stay out of other zones" push below.
-  const zoneMembers = Object.keys(childrenOf).map((parentId) => ({
-    parentId,
-    members: new Set([parentId, ...descendantsOf(parentId, childrenOf)])
-  }));
-
-  for (let iter = 0; iter < 160; iter++) {
-    for (let i = 0; i < ids.length; i++) {
-      for (let j = i + 1; j < ids.length; j++) {
-        const a = pos[ids[i]];
-        const b = pos[ids[j]];
-        let dx = b.x - a.x;
-        let dy = b.y - a.y;
-        const d = Math.sqrt(dx * dx + dy * dy) || 1;
-        if (d < 150) {
-          const push = ((150 - d) / d) * 0.5;
-          if (free.has(ids[j])) { b.x += dx * push; b.y += dy * push; }
-          if (free.has(ids[i])) { a.x -= dx * push; a.y -= dy * push; }
-        }
-      }
-    }
-    for (const e of edges) {
-      const a = pos[e.a];
-      const b = pos[e.b];
-      if (!a || !b) continue;
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const d = Math.sqrt(dx * dx + dy * dy) || 1;
-      const f = ((d - 140) / d) * 0.08;
-      if (free.has(e.b)) { b.x -= dx * f; b.y -= dy * f; }
-      if (free.has(e.a)) { a.x += dx * f; a.y += dy * f; }
-    }
-    // Gentle pull of each child toward its parent's current position.
-    for (const id of ids) {
-      if (!free.has(id)) continue;
-      const parentPos = pos[parentOf[id]];
-      const p = pos[id];
-      if (!parentPos) continue;
-      p.x += (parentPos.x - p.x) * 0.02;
-      p.y += (parentPos.y - p.y) * 0.02;
-    }
-    // Weak push of non-members away from a zone's centroid, so unrelated
-    // stations tend not to sit inside someone else's blob.
-    for (const { members } of zoneMembers) {
-      let cx = 0;
-      let cy = 0;
-      let n = 0;
-      for (const id of members) {
-        const p = pos[id];
-        if (!p) continue;
-        cx += p.x; cy += p.y; n++;
-      }
-      if (!n) continue;
-      cx /= n; cy /= n;
-      for (const id of ids) {
-        if (members.has(id) || !free.has(id)) continue;
-        const p = pos[id];
-        const dx = p.x - cx;
-        const dy = p.y - cy;
-        const d = Math.sqrt(dx * dx + dy * dy) || 1;
-        if (d < 120) {
-          const push = ((120 - d) / d) * 0.03;
-          p.x += dx * push;
-          p.y += dy * push;
-        }
-      }
-    }
-  }
-
-  for (const id of free) {
-    pos[id].x = Math.round(pos[id].x / GRID) * GRID;
-    pos[id].y = Math.round(pos[id].y / GRID) * GRID;
-  }
-  return pos;
-}
 
 // Match NPCs to the stations they're from via their free-text location field,
 // using the same name matching as the tube lines.
@@ -281,16 +150,11 @@ function badgesFor(id, noteMatch, npcsByPlace, showNotes, showNpcs) {
   ].filter(Boolean);
 }
 
-// The old map's under-station note/NPC listing, brought back alongside the
-// badges above: a short, read-only preview of what the badges are counting.
+// The note/NPC listing under a station, alongside the badges above: a short,
+// read-only preview of what the badges are counting.
 const MAX_LIST_NOTES = 4;
 const MAX_LIST_NPCS = 4;
 const LIST_LINE_HEIGHT = TEXT_METRICS.lineH;
-
-function truncateLabel(text, max = 28) {
-  const t = (text || '').trim();
-  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
-}
 
 // Same source lists the badge popup uses (and in the same order), just capped
 // short here — the popup is still where you go to see everything.
@@ -305,7 +169,7 @@ function noteNpcListFor(id, noteMatch, npcsByPlace, showNotes, showNpcs) {
 
 // How far a station's own name/badges/list reach right and down from its
 // point — same lists `noteNpcListFor`/`NoteNpcList` use, so the footprint
-// always matches what's actually drawn. Feeds `zoneRects`/`packLayout`'s
+// always matches what's actually drawn. Feeds `layoutZones`/`packLayout`'s
 // `footprintOf` and the drag clamps, so a zone rect always has room for its
 // members' text and a dragged station never overlaps its own zone's edge.
 //
@@ -419,6 +283,198 @@ function tubePath(a, b) {
   return `M ${a.x} ${a.y} L ${mx} ${my} L ${b.x} ${b.y}`;
 }
 
+// The zones, lines and stations. Its own memoised component so that panning
+// or zooming — which only change the wrapping <g transform> — don't rebuild
+// every station: it re-renders only when something it draws changes. Every
+// prop is either a memoised value or a stable function (see layerHandlers
+// in MapView), so don't pass it a fresh object or closure per render.
+const MapLayer = React.memo(function MapLayer({
+  zones,
+  zoneById,
+  lineEdges,
+  places,
+  layoutPos,
+  containment,
+  degree,
+  noteMatch,
+  npcsByPlace,
+  showNotes,
+  showNpcs,
+  selectedId,
+  colorBlind,
+  metrics,
+  labelScale,
+  onZoneMouseDown,
+  onZoneResizeMouseDown,
+  onNodeMouseDown,
+  onSelect
+}) {
+  return (
+    <>
+      {zones.map((zone) => {
+        const r0 = zone.rect;
+        // Guards against a corrupted mapW/mapH on the doc turning into a
+        // NaN rect — an empty/undefined rect would otherwise still reach
+        // the SVG attributes below and silently fail to paint.
+        if (!r0 || [r0.x, r0.y, r0.w, r0.h].some((n) => !Number.isFinite(n))) return null;
+        if (zone.lobes.some((l) => ![l.x, l.y, l.w, l.h, l.cut].every(Number.isFinite))) return null;
+        // Nesting levels alternate between two fills (A, B, A, B…); see
+        // zoneFillStyle, which the Settings preview shares.
+        const zoneFill = zoneFillStyle(zone.depth, zone.kind);
+        const badges = badgesFor(zone.id, noteMatch, npcsByPlace, showNotes, showNpcs);
+        // One octagon, or several joined into one outline for a lobed
+        // zone. The header (name, badges, list) sits on the top-left-most
+        // lobe, indented to clear its cut corner; the resize handle on
+        // the bottom-right lobe's diagonal.
+        const outline = lobesPath(zone.lobes);
+        const head = zone.lobes[zone.labelLobe];
+        const hx = head.x + labelInset(head.cut);
+        const handle = zone.lobes[zone.handleLobe];
+        return (
+          <g key={zone.id} className="map-zone">
+            <path
+              className="map-zone-fill"
+              d={outline}
+              style={{ ...zoneFill, strokeWidth: 2 }}
+            />
+            <path
+              className="map-zone-border-band"
+              d={outline}
+              onMouseDown={(e) => onZoneMouseDown(e, zone)}
+            />
+            <text
+              className="map-zone-label"
+              x={hx}
+              y={head.y + 22 * labelScale}
+              onMouseDown={(e) => onZoneMouseDown(e, zone)}
+            >
+              {zone.name}
+            </text>
+            {badges.map((b, i) => (
+              <g
+                key={b.icon}
+                className="map-badge"
+                transform={`translate(${hx + i * 46 * labelScale}, ${head.y + 30 * labelScale})`}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={() => onSelect(zone.id)}
+              >
+                <rect width={40 * labelScale} height={19 * labelScale} rx={9.5 * labelScale} />
+                <text x={7 * labelScale} y={14 * labelScale}>{b.icon}</text>
+                <text className="map-badge-count" x={27 * labelScale} y={14 * labelScale}>{b.count}</text>
+              </g>
+            ))}
+            <NoteNpcList
+              id={zone.id}
+              x={hx}
+              y={head.y + 58 * labelScale}
+              noteMatch={noteMatch}
+              npcsByPlace={npcsByPlace}
+              showNotes={showNotes}
+              showNpcs={showNpcs}
+              colorBlind={colorBlind}
+              lineHeight={metrics.lineH}
+            />
+            {/* Sits on the middle of the bottom-right diagonal edge. */}
+            <rect
+              className="map-zone-resize-handle"
+              x={handle.x + handle.w - handle.cut / 2 - RESIZE_HANDLE / 2}
+              y={handle.y + handle.h - handle.cut / 2 - RESIZE_HANDLE / 2}
+              width={RESIZE_HANDLE}
+              height={RESIZE_HANDLE}
+              rx="3"
+              onMouseDown={(e) => onZoneResizeMouseDown(e, zone)}
+            />
+          </g>
+        );
+      })}
+      {lineEdges.map((e, i) => {
+        const zoneA = zoneById.get(e.a);
+        const zoneB = zoneById.get(e.b);
+        const rawA = zoneA ? rectCenter(zoneA.rect) : layoutPos[e.a];
+        const rawB = zoneB ? rectCenter(zoneB.rect) : layoutPos[e.b];
+        if (!rawA || !rawB) return null;
+        const a = zoneA ? lobesAttachPoint(zoneA.lobes, rawB) : rawA;
+        const b = zoneB ? lobesAttachPoint(zoneB.lobes, rawA) : rawB;
+        const info = connInfo(e.type);
+        return (
+          <path
+            key={i}
+            d={tubePath(a, b)}
+            stroke={info.color}
+            strokeDasharray={colorBlind ? info.dash : null}
+            strokeWidth="6"
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        );
+      })}
+      {places.filter((p) => !zoneById.has(p._id)).map((p) => {
+        const pt = layoutPos[p._id];
+        if (!pt || Number.isNaN(pt.x) || Number.isNaN(pt.y)) return null;
+        const isInterchange = (degree[p._id] || 0) > 1;
+        // Badges give the at-a-glance count; the full card (click a badge
+        // or the station) is still where every note/NPC links through.
+        const badges = badgesFor(p._id, noteMatch, npcsByPlace, showNotes, showNpcs);
+        // An empty Town or Village is an area, not a spot: a small octagon
+        // in the zone colours instead of a dot, with its text moved right
+        // to clear it. Its depth picks the fill, so it alternates against
+        // whatever zone it sits in just like a full zone would.
+        const area = isAreaStop(p, containment);
+        const textShift = area ? AREA_TEXT_SHIFT : 0;
+        const markerRect = { x: -AREA_MARKER_R, y: -AREA_MARKER_R, w: AREA_MARKER_R * 2, h: AREA_MARKER_R * 2 };
+        return (
+          <g
+            key={p._id}
+            className="map-station"
+            transform={`translate(${pt.x},${pt.y})`}
+            onMouseDown={(e) => onNodeMouseDown(e, p._id)}
+          >
+            {area ? (
+              <path
+                className={`map-area-marker ${selectedId === p._id ? 'selected' : ''}`}
+                d={octagonPath(markerRect, zoneCut(markerRect))}
+                style={zoneFillStyle(containment.depthOf[p._id] || 0, zoneKind(p))}
+              />
+            ) : (
+              <circle
+                className={selectedId === p._id ? 'selected' : ''}
+                r={isInterchange ? 10 : 7}
+                strokeWidth={isInterchange ? 4 : 3}
+              />
+            )}
+            <text className="map-station-label" x={14 * labelScale + textShift} y={4 * labelScale}>{p.name}</text>
+            {badges.map((b, i) => (
+              <g
+                key={b.icon}
+                className="map-badge"
+                transform={`translate(${12 * labelScale + textShift + i * 46 * labelScale}, ${12 * labelScale})`}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={() => onSelect(p._id)}
+              >
+                <rect width={40 * labelScale} height={19 * labelScale} rx={9.5 * labelScale} />
+                <text x={7 * labelScale} y={14 * labelScale}>{b.icon}</text>
+                <text className="map-badge-count" x={27 * labelScale} y={14 * labelScale}>{b.count}</text>
+              </g>
+            ))}
+            <NoteNpcList
+              id={p._id}
+              x={12 * labelScale + textShift}
+              y={44 * labelScale}
+              noteMatch={noteMatch}
+              npcsByPlace={npcsByPlace}
+              showNotes={showNotes}
+              showNpcs={showNpcs}
+              colorBlind={colorBlind}
+              lineHeight={metrics.lineH}
+            />
+          </g>
+        );
+      })}
+    </>
+  );
+});
+
 export default function MapView({
   onOpenPlace,
   onOpenNote,
@@ -451,6 +507,11 @@ export default function MapView({
   // empty-map case where there's nothing to fit to.
   const [initialView, setInitialView] = useState({ tx: 40, ty: 20 });
   const [view, setView] = useState({ tx: 40, ty: 20, scale: 1 });
+  // screenToWorld reads the current pan/zoom from here rather than from the
+  // render it happened to be created in, so a handler that outlives a render
+  // (the memoised map layer's) never converts with an old view.
+  const viewRef = useRef(view);
+  viewRef.current = view;
   const [selectedId, setSelectedId] = useState(null);
   const [status, setStatus] = useState('');
   // Collapsed by default only on narrow screens (the mobile CSS keys off the
@@ -486,7 +547,7 @@ export default function MapView({
 
   const containment = useMemo(() => buildContainment(places, edges), [places, edges]);
 
-  // `places` merged with the locally-known zone sizes, so zoneRects sees a
+  // `places` merged with the locally-known zone sizes, so layoutZones sees a
   // resize in progress immediately without waiting on the server round-trip.
   const placesWithSizes = useMemo(
     () =>
@@ -503,7 +564,7 @@ export default function MapView({
   const noteMatch = useMemo(() => matchNotesToPlaces(notes, places), [notes, places]);
 
   // Every place's text footprint (right/down reach) and every zone's header
-  // height, kept as id -> value maps so zoneRects/packLayout/the drag clamps
+  // height, kept as id -> value maps so layoutZones/packLayout/the drag clamps
   // can all look them up by id via a plain function.
   const footprintById = useMemo(() => {
     const m = new Map();
@@ -832,9 +893,10 @@ export default function MapView({
 
   function screenToWorld(e) {
     const rect = svgRef.current.getBoundingClientRect();
+    const v = viewRef.current;
     return {
-      x: (e.clientX - rect.left - view.tx) / view.scale,
-      y: (e.clientY - rect.top - view.ty) / view.scale
+      x: (e.clientX - rect.left - v.tx) / v.scale,
+      y: (e.clientY - rect.top - v.ty) / v.scale
     };
   }
 
@@ -1203,6 +1265,20 @@ export default function MapView({
     });
   }
 
+  // The memoised layer is handed these fixed wrappers, which call whatever the
+  // latest render's handlers are. Passing the handlers themselves would give
+  // it a new function every render and defeat the memo.
+  const handlersRef = useRef(null);
+  handlersRef.current = { onNodeMouseDown, onZoneMouseDown, onZoneResizeMouseDown };
+  const layerHandlers = useMemo(
+    () => ({
+      onNodeMouseDown: (e, id) => handlersRef.current.onNodeMouseDown(e, id),
+      onZoneMouseDown: (e, zone) => handlersRef.current.onZoneMouseDown(e, zone),
+      onZoneResizeMouseDown: (e, zone) => handlersRef.current.onZoneResizeMouseDown(e, zone)
+    }),
+    []
+  );
+
   return (
     <div className="map-wrap">
       <svg
@@ -1221,166 +1297,27 @@ export default function MapView({
         </defs>
         <g transform={`translate(${view.tx},${view.ty}) scale(${view.scale})`}>
           <rect x="-4000" y="-4000" width="8000" height="8000" fill="url(#mapgrid)" />
-          {zones.map((zone) => {
-            const r0 = zone.rect;
-            // Guards against a corrupted mapW/mapH on the doc turning into a
-            // NaN rect — an empty/undefined rect would otherwise still reach
-            // the SVG attributes below and silently fail to paint.
-            if (!r0 || [r0.x, r0.y, r0.w, r0.h].some((n) => !Number.isFinite(n))) return null;
-            if (zone.lobes.some((l) => ![l.x, l.y, l.w, l.h, l.cut].every(Number.isFinite))) return null;
-            // Nesting levels alternate between two fills (A, B, A, B…); see
-            // zoneFillStyle, which the Settings preview shares.
-            const zoneFill = zoneFillStyle(zone.depth, zone.kind);
-            const badges = badgesFor(zone.id, noteMatch, npcsByPlace, showNotes, showNpcs);
-            // One octagon, or several joined into one outline for a lobed
-            // zone. The header (name, badges, list) sits on the top-left-most
-            // lobe, indented to clear its cut corner; the resize handle on
-            // the bottom-right lobe's diagonal.
-            const outline = lobesPath(zone.lobes);
-            const head = zone.lobes[zone.labelLobe];
-            const hx = head.x + labelInset(head.cut);
-            const handle = zone.lobes[zone.handleLobe];
-            return (
-              <g key={zone.id} className="map-zone">
-                <path
-                  className="map-zone-fill"
-                  d={outline}
-                  style={{ ...zoneFill, strokeWidth: 2 }}
-                />
-                <path
-                  className="map-zone-border-band"
-                  d={outline}
-                  onMouseDown={(e) => onZoneMouseDown(e, zone)}
-                />
-                <text
-                  className="map-zone-label"
-                  x={hx}
-                  y={head.y + 22 * labelScale}
-                  onMouseDown={(e) => onZoneMouseDown(e, zone)}
-                >
-                  {zone.name}
-                </text>
-                {badges.map((b, i) => (
-                  <g
-                    key={b.icon}
-                    className="map-badge"
-                    transform={`translate(${hx + i * 46 * labelScale}, ${head.y + 30 * labelScale})`}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={() => setSelectedId(zone.id)}
-                  >
-                    <rect width={40 * labelScale} height={19 * labelScale} rx={9.5 * labelScale} />
-                    <text x={7 * labelScale} y={14 * labelScale}>{b.icon}</text>
-                    <text className="map-badge-count" x={27 * labelScale} y={14 * labelScale}>{b.count}</text>
-                  </g>
-                ))}
-                <NoteNpcList
-                  id={zone.id}
-                  x={hx}
-                  y={head.y + 58 * labelScale}
-                  noteMatch={noteMatch}
-                  npcsByPlace={npcsByPlace}
-                  showNotes={showNotes}
-                  showNpcs={showNpcs}
-                  colorBlind={colorBlind}
-                  lineHeight={metrics.lineH}
-                />
-                {/* Sits on the middle of the bottom-right diagonal edge. */}
-                <rect
-                  className="map-zone-resize-handle"
-                  x={handle.x + handle.w - handle.cut / 2 - RESIZE_HANDLE / 2}
-                  y={handle.y + handle.h - handle.cut / 2 - RESIZE_HANDLE / 2}
-                  width={RESIZE_HANDLE}
-                  height={RESIZE_HANDLE}
-                  rx="3"
-                  onMouseDown={(e) => onZoneResizeMouseDown(e, zone)}
-                />
-              </g>
-            );
-          })}
-          {lineEdges.map((e, i) => {
-            const zoneA = zoneById.get(e.a);
-            const zoneB = zoneById.get(e.b);
-            const rawA = zoneA ? rectCenter(zoneA.rect) : layoutPos[e.a];
-            const rawB = zoneB ? rectCenter(zoneB.rect) : layoutPos[e.b];
-            if (!rawA || !rawB) return null;
-            const a = zoneA ? lobesAttachPoint(zoneA.lobes, rawB) : rawA;
-            const b = zoneB ? lobesAttachPoint(zoneB.lobes, rawA) : rawB;
-            const info = connInfo(e.type);
-            return (
-              <path
-                key={i}
-                d={tubePath(a, b)}
-                stroke={info.color}
-                strokeDasharray={colorBlind ? info.dash : null}
-                strokeWidth="6"
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            );
-          })}
-          {places.filter((p) => !zoneById.has(p._id)).map((p) => {
-            const pt = layoutPos[p._id];
-            if (!pt || Number.isNaN(pt.x) || Number.isNaN(pt.y)) return null;
-            const isInterchange = (degree[p._id] || 0) > 1;
-            // Badges give the at-a-glance count; the full card (click a badge
-            // or the station) is still where every note/NPC links through.
-            const badges = badgesFor(p._id, noteMatch, npcsByPlace, showNotes, showNpcs);
-            // An empty Town or Village is an area, not a spot: a small octagon
-            // in the zone colours instead of a dot, with its text moved right
-            // to clear it. Its depth picks the fill, so it alternates against
-            // whatever zone it sits in just like a full zone would.
-            const area = isAreaStop(p, containment);
-            const textShift = area ? AREA_TEXT_SHIFT : 0;
-            const markerRect = { x: -AREA_MARKER_R, y: -AREA_MARKER_R, w: AREA_MARKER_R * 2, h: AREA_MARKER_R * 2 };
-            return (
-              <g
-                key={p._id}
-                className="map-station"
-                transform={`translate(${pt.x},${pt.y})`}
-                onMouseDown={(e) => onNodeMouseDown(e, p._id)}
-              >
-                {area ? (
-                  <path
-                    className={`map-area-marker ${selectedId === p._id ? 'selected' : ''}`}
-                    d={octagonPath(markerRect, zoneCut(markerRect))}
-                    style={zoneFillStyle(containment.depthOf[p._id] || 0, zoneKind(p))}
-                  />
-                ) : (
-                  <circle
-                    className={selectedId === p._id ? 'selected' : ''}
-                    r={isInterchange ? 10 : 7}
-                    strokeWidth={isInterchange ? 4 : 3}
-                  />
-                )}
-                <text className="map-station-label" x={14 * labelScale + textShift} y={4 * labelScale}>{p.name}</text>
-                {badges.map((b, i) => (
-                  <g
-                    key={b.icon}
-                    className="map-badge"
-                    transform={`translate(${12 * labelScale + textShift + i * 46 * labelScale}, ${12 * labelScale})`}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={() => setSelectedId(p._id)}
-                  >
-                    <rect width={40 * labelScale} height={19 * labelScale} rx={9.5 * labelScale} />
-                    <text x={7 * labelScale} y={14 * labelScale}>{b.icon}</text>
-                    <text className="map-badge-count" x={27 * labelScale} y={14 * labelScale}>{b.count}</text>
-                  </g>
-                ))}
-                <NoteNpcList
-                  id={p._id}
-                  x={12 * labelScale + textShift}
-                  y={44 * labelScale}
-                  noteMatch={noteMatch}
-                  npcsByPlace={npcsByPlace}
-                  showNotes={showNotes}
-                  showNpcs={showNpcs}
-                  colorBlind={colorBlind}
-                  lineHeight={metrics.lineH}
-                />
-              </g>
-            );
-          })}
+          <MapLayer
+            zones={zones}
+            zoneById={zoneById}
+            lineEdges={lineEdges}
+            places={places}
+            layoutPos={layoutPos}
+            containment={containment}
+            degree={degree}
+            noteMatch={noteMatch}
+            npcsByPlace={npcsByPlace}
+            showNotes={showNotes}
+            showNpcs={showNpcs}
+            selectedId={selectedId}
+            colorBlind={colorBlind}
+            metrics={metrics}
+            labelScale={labelScale}
+            onZoneMouseDown={layerHandlers.onZoneMouseDown}
+            onZoneResizeMouseDown={layerHandlers.onZoneResizeMouseDown}
+            onNodeMouseDown={layerHandlers.onNodeMouseDown}
+            onSelect={setSelectedId}
+          />
           {pulse && (
             <circle
               className={`map-find-pulse ${pulse.reduced ? 'static' : ''}`}

@@ -169,26 +169,10 @@ function unionRect(a, b) {
   return { x, y, w: right - x, h: bottom - y };
 }
 
-// Clamp a point inside a rect, inset by `margin` on every side (or by
-// `marginRight`/`marginBottom` on those two sides specifically, when a point
-// carries a footprint of text extending right/down from it and needs more
-// room on those sides than on the left/top). If the rect (after the inset)
-// is degenerate — too small to hold the margin — the point collapses to the
-// rect's centre rather than producing NaN/inverted bounds.
-export function clampPointToRect(point, rect, margin = 0, marginRight = margin, marginBottom = margin) {
-  const minX = rect.x + margin;
-  const maxX = rect.x + rect.w - marginRight;
-  const minY = rect.y + margin;
-  const maxY = rect.y + rect.h - marginBottom;
-  const x = maxX >= minX ? Math.min(Math.max(point.x, minX), maxX) : rect.x + rect.w / 2;
-  const y = maxY >= minY ? Math.min(Math.max(point.y, minY), maxY) : rect.y + rect.h / 2;
-  return { x, y };
-}
-
 // Clamp a rect's position inside a parent rect, keeping its own width/height.
 // `margin` keeps it that far from the parent's sides and bottom, `topMargin`
 // from the top (room for the parent's label) — pass the same pad/headroom
-// zoneRects uses so the parent never has to grow to keep its padding around
+// layoutZones uses so the parent never has to grow to keep its padding around
 // a child that's being dragged. If the rect is bigger than the allowed area
 // in some dimension it can't be fully contained, so it pins to the area's
 // top-left on that axis instead.
@@ -236,22 +220,6 @@ export function pushRectClear(rect, obstacles, gap = 0, maxIter = 6) {
     if (!movedThisPass) break;
   }
   return { x, y, w, h };
-}
-
-// How wide/tall `rect` may grow (from its top-left) before it comes within
-// `gap` of an obstacle sitting to its right or below it. Only obstacles whose
-// span overlaps the rect on the other axis count — a sibling entirely above
-// or entirely to the left never limits growth.
-export function resizeLimits(rect, obstacles, gap = 0) {
-  let maxW = Infinity;
-  let maxH = Infinity;
-  for (const o of obstacles) {
-    const sharesRows = o.y - gap < rect.y + rect.h && o.y + o.h + gap > rect.y;
-    const sharesCols = o.x - gap < rect.x + rect.w && o.x + o.w + gap > rect.x;
-    if (sharesRows && o.x >= rect.x) maxW = Math.min(maxW, o.x - gap - rect.x);
-    if (sharesCols && o.y >= rect.y) maxH = Math.min(maxH, o.y - gap - rect.y);
-  }
-  return { maxW, maxH };
 }
 
 // Where a line drawn from `fromPoint` toward a zone rect's centre crosses
@@ -1100,14 +1068,8 @@ export function layoutZones(places, positions, containment, opts = {}) {
   return { zones, positions: out };
 }
 
-// Just the zones from layoutZones, for callers that don't need the moved positions.
-export function zoneRects(places, positions, containment, opts = {}) {
-  return layoutZones(places, positions, containment, opts).zones;
-}
-
-// "Auto-arrange" for zones: a cheap recursive shelf-pack instead of the old
-// force layout, so nested zones come out as neat grids instead of a jumble.
-// Each zone lays its direct member stops out on a grid, shelves its child
+// "Auto-arrange" for zones: a cheap recursive shelf-pack, so nested zones
+// come out as neat grids instead of a jumble. Each zone lays its direct member stops out on a grid, shelves its child
 // zones after them (wrapping after `perRow` columns), and sizes itself to
 // fit — innermost zones are packed first so a parent can size around its
 // already-packed children. Root-level zones and stops are packed the same

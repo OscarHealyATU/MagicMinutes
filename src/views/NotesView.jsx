@@ -12,9 +12,6 @@ function parseTags(text) {
   return text.split(',').map((t) => t.trim()).filter(Boolean);
 }
 
-// Lives with the note text format, which has to agree on the list.
-export { NOTE_CATEGORIES };
-
 function fmtDate(iso) {
   if (!iso) return '';
   return new Date(iso).toLocaleDateString(undefined, {
@@ -23,6 +20,29 @@ function fmtDate(iso) {
     year: 'numeric'
   });
 }
+
+// One row of the list. Memoised so typing in the editor, which changes only
+// the open note, redraws that one row instead of all of them. It only skips
+// work if every prop is stable: the note object keeps its identity until that
+// note changes, `selected` is a plain boolean, and `onSelect` is a state
+// setter — don't hand it a new closure per row.
+const NoteRow = React.memo(function NoteRow({ note, selected, onSelect }) {
+  return (
+    <button
+      className={`item-card ${selected ? 'selected' : ''}`}
+      onClick={() => onSelect(note._id)}
+    >
+      <div className="item-title">
+        {note.pinned && <span title="Pinned">📌 </span>}
+        {note.title || 'Untitled'}
+      </div>
+      <div className="item-meta">
+        <span className="badge">{note.category}</span>
+        <span className="item-date">{fmtDate(note.updatedAt)}</span>
+      </div>
+    </button>
+  );
+});
 
 export default function NotesView({ focusId, onFocusUsed }) {
   const [notes, setNotes] = useState([]);
@@ -47,6 +67,11 @@ export default function NotesView({ focusId, onFocusUsed }) {
     setTagsDraft((selected?.tags || []).join(', '));
   }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fetched once, when the tab opens. A note opened from the Map arrives as
+  // `focusId` on that first render (each tab is mounted fresh when you switch
+  // to it), so it is selected here, once the list holds it, and then handed
+  // back with onFocusUsed. Depending on focusId would refetch everything the
+  // moment onFocusUsed clears it.
   useEffect(() => {
     api.list('notes').then((docs) => {
       setNotes(docs);
@@ -56,12 +81,8 @@ export default function NotesView({ focusId, onFocusUsed }) {
       }
     }).catch((e) => setStatus(e.message));
     api.list('places').then(setPlaces).catch(() => {});
-    // Selecting another note from the Map reloads this list — refetching
-    // here must not blow away whatever's mid-edit in the currently open one;
-    // it doesn't, since the autosave hook below flushes off its own refs,
-    // not off `notes`/`selected`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusId]);
+  }, []);
 
   const autosave = useAutosave({
     id: selected?._id ?? null,
@@ -220,20 +241,7 @@ export default function NotesView({ focusId, onFocusUsed }) {
             <div className="empty-hint">No notes yet. Click “+ New” to write your first one.</div>
           )}
           {visible.map((n) => (
-            <button
-              key={n._id}
-              className={`item-card ${selectedId === n._id ? 'selected' : ''}`}
-              onClick={() => setSelectedId(n._id)}
-            >
-              <div className="item-title">
-                {n.pinned && <span title="Pinned">📌 </span>}
-                {n.title || 'Untitled'}
-              </div>
-              <div className="item-meta">
-                <span className="badge">{n.category}</span>
-                <span className="item-date">{fmtDate(n.updatedAt)}</span>
-              </div>
-            </button>
+            <NoteRow key={n._id} note={n} selected={selectedId === n._id} onSelect={setSelectedId} />
           ))}
         </div>
       </aside>

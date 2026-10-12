@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { api } from '../api.js';
 import AppearancePreview from '../components/AppearancePreview.jsx';
 import { switchCampaign } from '../components/CampaignSwitcher.jsx';
+import { inTauri } from '../lib/env.mjs';
 import { trackSave } from '../lib/pendingSaves.js';
 import { COLLECTIONS } from '../lib/store.mjs';
-import { confirmDialog, openTextFile, saveTextFile, writeAppDataBackup } from '../fileio.js';
+import { confirmDialog, copyText, openTextFile, saveTextFile, writeAppDataBackup } from '../fileio.js';
 import { THEMES } from '../lib/theme.mjs';
 import { FONT_STYLES } from '../lib/a11y.mjs';
 import {
@@ -36,7 +38,6 @@ const LABELS = {
   players: 'Player characters',
   groups: 'Groups',
   combos: 'Combos',
-  rolls: 'Dice rolls',
   sessions: 'Sessions'
 };
 
@@ -223,6 +224,65 @@ function CampaignsCard() {
 
       {status && <div className="settings-status">{status}</div>}
       {error && <div className="settings-error">⚠ {error}</div>}
+    </section>
+  );
+}
+
+// "For AI assistants" card — closed by default, since most people will never
+// use it. Shows the command to hand to an agent (the full path to the
+// command-line program, which the Rust side knows) and where AGENTS.md is.
+function AiAssistantsCard() {
+  // In a plain browser there is no install, so a typical path is shown.
+  const [info, setInfo] = useState(
+    inTauri
+      ? null
+      : {
+          launcher: '%LOCALAPPDATA%\\MagicMinutes\\magicminutes.exe',
+          launcherExists: true,
+          agents: '%LOCALAPPDATA%\\MagicMinutes\\AGENTS.md'
+        }
+  );
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!inTauri) return;
+    invoke('cli_launcher_path')
+      .then(setInfo)
+      // No answer (an unusual install) just leaves the card out.
+      .catch(() => setInfo({ launcherExists: false }));
+  }, []);
+
+  if (!info || !info.launcherExists) return null;
+  const command = `"${info.launcher}" help`;
+
+  async function copy() {
+    if (await copyText(command)) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }
+
+  return (
+    <section className="settings-card">
+      <details className="settings-collapse">
+        <summary>For AI assistants</summary>
+        <div className="settings-collapse-body">
+          <p className="settings-help">
+            An AI assistant with a terminal (Claude Code, for example) can read and add notes in
+            your campaigns without you clicking through the app. Give it this command and it
+            will learn the rest; it can add and import notes, but never deletes anything.
+          </p>
+          <div className="cli-command">
+            <code>{command}</code>
+            <button className="btn" onClick={copy}>
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+          <p className="settings-help">
+            A short guide written for assistants is installed next to it: <code>{info.agents}</code>
+          </p>
+        </div>
+      </details>
     </section>
   );
 }
@@ -572,7 +632,7 @@ export default function SettingsView({
           <p className="settings-help">
             Everything lives in one SQLite file on this machine — nothing is synced anywhere.
             Export writes a single JSON file holding your whole campaign: notes, places, NPCs,
-            groups, party, combos, rolls and session history. Keep one somewhere safe, and use
+            groups, party, combos and session history. Keep one somewhere safe, and use
             it to move to another machine or your phone. To send just a few notes to someone, use
             Share on the Notes page instead.
           </p>
@@ -637,6 +697,8 @@ export default function SettingsView({
           {status && <div className="settings-status">{status}</div>}
           {error && <div className="settings-error">⚠ {error}</div>}
         </section>
+
+        <AiAssistantsCard />
 
         <section className="settings-card">
           <h3>Where your data lives</h3>
